@@ -32,11 +32,15 @@ import {
   fetchSegregatedDeviceData,
   fetchStatusEventsForPCB,
 } from "../deviceEventsService";
-import { fetchCustomerServiceItems } from "../serviceItemsService";
+import {
+  fetchCustomerServiceItems,
+  getCachedCustomerServiceItems,
+} from "../serviceItemsService";
 
 const COMMAND_CONFIRMATION_TIMEOUT_MS = 300000;
 const COMMAND_CONFIRMATION_POLL_MS = 2000;
 const COMMAND_CANCEL_DELAY_MS = 60000;
+const INITIALIZATION_RETRY_DELAYS_MS = [0, 5000, 10000, 20000, 30000];
 
 const Screen1FromEvents = () => {
   const { user, logout } = useContext(AuthContext);
@@ -82,6 +86,12 @@ const processingRef = useRef(false);
   const [canCancelProcessing, setCanCancelProcessing] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [initializationRun, setInitializationRun] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState({
+    phase: "connecting",
+    title: "Connecting to AIR₂O services",
+    message: "Please wait while we load your machines.",
+  });
   const [manualRefresh, setManualRefresh] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState({
     sending: false,
@@ -177,76 +187,172 @@ const isControlDisabled = () => {
       return null;
     }
   };
-  // ✅ MODIFIED: Fetch service items and initial data
+  // Fetch service items with patient-facing status and bounded automatic retries.
   useEffect(() => {
-    const initialize = async () => {
-      try {
-        setLoading(true);
-        
-        // Step 1: Fetch service items once, including React development remounts.
-        const items = await fetchCustomerServiceItems(baseURL, userId, company_id);
-        setServiceItems(items);
+    let cancelled = false;
+    const timers = new Set();
 
-        if (items.length > 0) {
-          // Step 2: Get the first service
-          const first = items[0];
-          setSelectedService(first);
-          activePCBRef.current = first.pcb_serial_number;
-          
-          // Step 3: Render the safe machine shell before device data finishes.
-          setLoadingMessage("Loading device data...");
-          setLoading(false);
-          const deviceData = await fetchDataForPCB(first.pcb_serial_number, first.service_item_id);
-          
-          if (deviceData) {
-            // Step 4: Update sensor data with real values
-            const isOnline = deviceData.is_online;
-            setSensorData({
-              outsideTemp: isOnline ? deviceData.outdoor_temperature?.value : null,
-              humidity: isOnline ? deviceData.room_humidity?.value : null,
-              roomTemp: isOnline ? deviceData.room_temperature?.value : null,
-              fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
-              temperature: isOnline ? deviceData.set_temperature?.value : 25,
-              powerStatus: isOnline && deviceData.hvac_on?.value == "1" ? "on" : "off",
-              mode: deviceData.mode?.value || "3",
-              errorFlag: isOnline ? deviceData.error_flag?.value : "0",
-              hvacBusy: isOnline ? deviceData.hvac_busy?.value : "0",
-              deviceId: first.pcb_serial_number,
-              alarmOccurred: deviceData.alarm_occurred?.value || "0",
-              isOnline: isOnline,
-            });
+    const wait = (delay) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          resolve();
+        }, delay);
+        timers.add(timer);
+      });
 
-            // Update display data
-            setDisplayData({
-              fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
-              temperature: isOnline ? deviceData.set_temperature?.value : 25,
-              mode: deviceData.mode?.value || "3",
-              powerStatus: isOnline && deviceData.hvac_on?.value == "1" ? "on" : "off",
-            });
+    const initializeService = async (items, usingCachedItems = false) => {
+      if (cancelled) return;
+      setServiceItems(items);
 
-            // Update error count
-            const alarmValue = deviceData.alarm_occurred?.value;
-            setErrorCount(alarmValue && alarmValue !== "0" ? Number(alarmValue) : 0);
-          }
-          
-          setInitialDataLoaded(true); // ✅ Mark initial data as loaded
-        }
-
+      if (items.length === 0) {
+        setInitialDataLoaded(true);
         setLoading(false);
-        setPullToRefresh((prev) => ({ ...prev, isRefreshing: false }));
-        setManualRefresh(false);
-        
-      } catch (error) {
-        console.error("❌ Error during initialization:", error);
-        setLoading(false);
-        setPullToRefresh((prev) => ({ ...prev, isRefreshing: false }));
-        setManualRefresh(false);
+        return;
+      }
+
+      const first = items[0];
+      setSelectedService(first);
+      activePCBRef.current = first.pcb_serial_number;
+      setLoadingMessage("Loading device data...");
+      setLoading(false);
+
+      const deviceData = await fetchDataForPCB(first.pcb_serial_number, first.service_item_id);
+      if (cancelled) return;
+
+      if (deviceData) {
+        const isOnline = deviceData.is_online;
+        setSensorData({
+          outsideTemp: isOnline ? deviceData.outdoor_temperature?.value : null,
+          humidity: isOnline ? deviceData.room_humidity?.value : null,
+          roomTemp: isOnline ? deviceData.room_temperature?.value : null,
+          fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
+          temperature: isOnline ? deviceData.set_temperature?.value : 25,
+          powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
+          mode: deviceData.mode?.value || "3",
+          errorFlag: isOnline ? deviceData.error_flag?.value : "0",
+          hvacBusy: isOnline ? deviceData.hvac_busy?.value : "0",
+          deviceId: first.pcb_serial_number,
+          alarmOccurred: deviceData.alarm_occurred?.value || "0",
+          isOnline,
+        });
+
+        setDisplayData({
+          fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
+          temperature: isOnline ? deviceData.set_temperature?.value : 25,
+          mode: deviceData.mode?.value || "3",
+          powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
+        });
+
+        const alarmValue = deviceData.alarm_occurred?.value;
+        setErrorCount(alarmValue && alarmValue !== "0" ? Number(alarmValue) : 0);
+      }
+
+      setInitialDataLoaded(true);
+      setPullToRefresh((previous) => ({ ...previous, isRefreshing: false }));
+      setManualRefresh(false);
+
+      if (usingCachedItems) {
+        setSwitchNotification({
+          show: true,
+          message: "Using your last available machine list while AIR₂O reconnects.",
+        });
+        const cachedNoticeTimer = setTimeout(
+          () => setSwitchNotification({ show: false, message: "" }),
+          5000
+        );
+        timers.add(cachedNoticeTimer);
       }
     };
 
-    initialize();
-  }, [userId, company_id]); // Run only when userId or company_id changes
+    const initialize = async () => {
+      setLoading(true);
+      setInitialDataLoaded(false);
+      setConnectionStatus({
+        phase: "connecting",
+        title: "Connecting to AIR₂O services",
+        message: "Please wait while we load your machines.",
+      });
 
+      const slowTimer = setTimeout(() => {
+        if (!cancelled) {
+          setConnectionStatus((current) =>
+            current.phase === "connecting"
+              ? {
+                  phase: "slow",
+                  title: "Still connecting",
+                  message:
+                    "This is taking a little longer than usual. Your HVAC machine may still be operating normally.",
+                }
+              : current
+          );
+        }
+      }, 8000);
+      timers.add(slowTimer);
+
+      let lastError;
+      for (let attempt = 0; attempt < INITIALIZATION_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (cancelled) return;
+
+        const delay = INITIALIZATION_RETRY_DELAYS_MS[attempt];
+        if (delay > 0) {
+          setConnectionStatus({
+            phase: "retrying",
+            title: "AIR₂O services are taking longer to respond",
+            message: `Retrying automatically (attempt ${attempt + 1} of ${INITIALIZATION_RETRY_DELAYS_MS.length})…`,
+          });
+          await wait(delay);
+          if (cancelled) return;
+        }
+
+        try {
+          const items = await fetchCustomerServiceItems(baseURL, userId, company_id);
+          if (cancelled) return;
+          timers.forEach(clearTimeout);
+          timers.clear();
+          await initializeService(items);
+
+          if (attempt > 0 && !cancelled) {
+            setSwitchNotification({ show: true, message: "Connection restored. Machine information is up to date." });
+            const noticeTimer = setTimeout(
+              () => setSwitchNotification({ show: false, message: "" }),
+              4000
+            );
+            timers.add(noticeTimer);
+          }
+          return;
+        } catch (error) {
+          lastError = error;
+          console.warn(`AIR₂O initialization attempt ${attempt + 1} failed:`, error);
+        }
+      }
+
+      if (cancelled) return;
+      const cachedItems = getCachedCustomerServiceItems(baseURL, userId, company_id);
+      if (cachedItems?.length) {
+        await initializeService(cachedItems, true);
+        return;
+      }
+
+      console.error("AIR₂O services remain unavailable after automatic retries:", lastError);
+      setLoading(false);
+      setConnectionStatus({
+        phase: "unavailable",
+        title: "Unable to connect right now",
+        message:
+          "AIR₂O services are temporarily unavailable. Your HVAC machine may still be operating normally. Please retry.",
+      });
+      setPullToRefresh((previous) => ({ ...previous, isRefreshing: false }));
+      setManualRefresh(false);
+    };
+
+    initialize();
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, [userId, company_id, initializationRun]);
   // Foreground event refresh for the active PCB.
   const fetchData = async () => {
     const pcbSerialNumber = activePCBRef.current;
@@ -842,7 +948,7 @@ const handleTouchEnd = async () => {
         roomTemp: isOnline ? deviceData.room_temperature?.value : null,
         fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
         temperature: isOnline ? deviceData.set_temperature?.value : 25,
-        powerStatus: isOnline && deviceData.hvac_on?.value == "1" ? "on" : "off",
+        powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
         mode: deviceData.mode?.value || "3",
         errorFlag: isOnline ? deviceData.error_flag?.value : "0",
         hvacBusy: isOnline ? deviceData.hvac_busy?.value : "0",
@@ -856,7 +962,7 @@ const handleTouchEnd = async () => {
         fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
         temperature: isOnline ? deviceData.set_temperature?.value : 25,
         mode: deviceData.mode?.value || "3",
-        powerStatus: isOnline && deviceData.hvac_on?.value == "1" ? "on" : "off",
+        powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
       });
       
       // Message 4: Updating
@@ -925,7 +1031,18 @@ const handleTouchEnd = async () => {
   // ✅ MODIFIED: Loading state checks
   // Show loading if initial data is not loaded yet OR loading is true
   if (loading || !initialDataLoaded) {
-    return <Loading onLogout={handleLogout} message="Loading device data..." />;
+    return (
+      <Loading
+        onLogout={handleLogout}
+        title={connectionStatus.title}
+        message={connectionStatus.message}
+        onRetry={
+          connectionStatus.phase === "connecting"
+            ? undefined
+            : () => setInitializationRun((run) => run + 1)
+        }
+      />
+    );
   }
 
   if (!loading && serviceItems.length === 0 && !manualRefresh) {

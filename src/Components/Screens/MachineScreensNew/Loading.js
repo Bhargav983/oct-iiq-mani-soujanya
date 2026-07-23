@@ -2,7 +2,13 @@
 import React from "react";
 import { FiLogOut } from "react-icons/fi";
 
-const Loading = ({ onLogout }) => {
+const Loading = ({
+  onLogout,
+  title = "Connecting to AIR₂O services",
+  message = "Please wait while we load your machines.",
+  retryLabel,
+  onRetry,
+}) => {
   return (
     <div
       className="mainmain-container"
@@ -16,32 +22,21 @@ const Loading = ({ onLogout }) => {
         color: "white",
       }}
     >
-      <div
-        className="loading"
-        style={{ color: "white", fontSize: "18px", marginBottom: "20px", gap: "10%" }}
-      >
-        Loading...
-        <button
-          onClick={onLogout}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            backgroundColor: "rgba(255, 255, 255, 0.15)",
-            color: "white",
-            border: "1px solid white",
-            borderRadius: "8px",
-            padding: "8px 16px",
-            cursor: "pointer",
-            fontSize: "16px",
-            transition: "0.3s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.25)")}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.15)")}
-        >
-          <FiLogOut size={20} />
-          <span>Logout</span>
-        </button>
+      <div className="connection-loading-card" role="status" aria-live="polite">
+        <div className="connection-loading-spinner" aria-hidden="true" />
+        <h2>{title}</h2>
+        <p>{message}</p>
+        <div className="connection-loading-actions">
+          {onRetry && (
+            <button className="connection-retry-button" onClick={onRetry}>
+              {retryLabel || "Retry now"}
+            </button>
+          )}
+          <button onClick={onLogout} className="connection-logout-button">
+            <FiLogOut size={20} />
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
     </div>
   );

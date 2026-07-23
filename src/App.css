@@ -36,3 +36,21 @@
     transform: rotate(360deg);
   }
 }
+
+.app-route-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 20px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: app-route-spin 0.9s linear infinite;
+}
+
+@keyframes app-route-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-route-spinner { animation: none; }
+}

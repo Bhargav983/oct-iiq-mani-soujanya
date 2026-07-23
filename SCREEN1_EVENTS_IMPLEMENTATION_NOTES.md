@@ -30,3 +30,16 @@
 - Device dropdown rows show green Online, gray Offline, or Checking indicators from `is_online` snapshots.
 - Focused event parser and reducer tests are in `deviceEventsService.test.js`.
 - Latest validation: 8 focused tests passed and the production build completed with existing warnings.
+- Events-screen startup shows patient-facing AIR₂O connection, slow-response, retry, and unavailable states.
+- Service-item startup retries automatically after 5, 10, 20, and 30 seconds.
+- A Retry now action lets customers restart connection attempts without reloading the app.
+- Service-item requests time out after 15 seconds instead of spinning indefinitely.
+- The last in-session machine list is used when retries fail and cached data exists.
+- Connection recovery displays a short success message and refreshes live Events data.
+- Notification API failures remain independent and do not block machine-screen initialization.
+- Latest validation: 13 focused tests passed and the production build completed with existing warnings.- A pre-React AIR2O startup screen prevents a blank page while JavaScript starts.
+- App routes lazy-load behind a consistent AIR2O loading screen.
+- The machine route downloads only the configured Events or SensorReadings implementation.
+- Main JavaScript reduced from 315.78 KB to 126.5 KB gzip (about 60% smaller).
+- Browser checks confirmed the machine and secondary lazy-loaded routes render correctly.
+- Final validation: 13 focused tests passed and the optimized production build completed.
