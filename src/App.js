@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useContext, useEffect } from "react";
 import { BrowserRouter as Router, Route, Routes, useNavigate } from "react-router-dom";
 import Login from "./Components/LoginSreens/Login";
 import Screen1 from "./Components/Screens/MachineScreensNew/Screen1";
+import DelegateScreen1 from "./DelegateProfile/DelegateMachineScreen/DelegateScreen1";
 import AuthProvider, { AuthContext } from "./Components/AuthContext/AuthContext";
 import { DelegateServiceItemProvider } from "./Components/AuthContext/DelegateServiceItemContext";
 import { CustomerNotificationProvider } from "./Components/AuthContext/CustomerNotificationContext";
@@ -57,7 +58,6 @@ const RequestScreenDelegate = lazy(() => import("./DelegateProfile/DelegateReque
 const DelegateFeedback = lazy(() => import("./DelegateProfile/DelegateRequest/DelegateFeedback"));
 const DelegateProfileDetails = lazy(() => import("./DelegateProfile/DelegateProfileDetails/ProfileDetails"));
 const DelegateComplaintsForm = lazy(() => import("./DelegateProfile/DelegateRequest/DelegateComplaintsForm"));
-const DelegateScreen1 = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateScreen1"));
 const DelegateScreen2 = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateScreen2"));
 const DelegateAlarmsPage = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateAlarmPage"));
 const DelegateMachineAlert = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateMachineAlert"));

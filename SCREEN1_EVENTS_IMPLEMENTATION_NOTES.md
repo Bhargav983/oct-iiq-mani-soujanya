@@ -43,3 +43,5 @@
 - Main JavaScript reduced from 315.78 KB to 126.5 KB gzip (about 60% smaller).
 - Browser checks confirmed the machine and secondary lazy-loaded routes render correctly.
 - Final validation: 13 focused tests passed and the optimized production build completed.
+- Machine switching now cancels the previous PCB UI-processing cycle and immediately loads only the newly selected PCB Events data.
+- Pending controls are remembered per PCB, restored optimistically on return, and cleared after Events confirmation or timeout.

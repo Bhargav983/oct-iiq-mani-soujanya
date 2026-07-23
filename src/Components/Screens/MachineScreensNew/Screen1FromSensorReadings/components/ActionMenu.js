@@ -7,6 +7,8 @@ const ActionMenu = ({
   onAlarms,
   onNavigate,
   onLogout,
+  servicePath = "/machine",
+  timersDisabled = false,
 }) => (
   <div className="control-buttons">
     <button
@@ -48,7 +50,7 @@ const ActionMenu = ({
       <span>Alarms</span>
     </button>
 
-    <button className="control-btn" onClick={() => onNavigate("/timers")}>
+    <button className="control-btn" onClick={() => onNavigate("/timers")} disabled={timersDisabled}>
       <FiWatch size={20} />
       <span>Timers</span>
     </button>
@@ -56,7 +58,7 @@ const ActionMenu = ({
       <FiSettings size={20} />
       <span>Settings</span>
     </button>
-    <button className="control-btn" onClick={() => onNavigate("/machine")}>
+    <button className="control-btn" onClick={() => onNavigate(servicePath)}>
       <FiZap size={20} />
       <span>Services</span>
     </button>

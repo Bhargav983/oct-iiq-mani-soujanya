@@ -113,11 +113,15 @@ export default function Login() {
       fcmToken = window.fcmToken;
     }
 
-    const response = await axios.post(`${baseURL}/customer-login/`, {
-      mobile,
-      password,
-      fcm_token: fcmToken,
-    });
+    const response = await axios.post(
+      `${baseURL}/customer-login/`,
+      {
+        mobile,
+        password,
+        fcm_token: fcmToken,
+      },
+      { timeout: 120000 }
+    );
 
     const loginResponse = {
       status: "success",
@@ -153,6 +157,13 @@ export default function Login() {
         const allDelegateItems = serviceItemsResponse.data.data || [];
         const userServiceItems = allDelegateItems.filter(
           item => item.delegate === user.delegate_id
+        );
+        sessionStorage.setItem(
+          "delegateServiceItemAssignments",
+          JSON.stringify({
+            delegateId: user.delegate_id,
+            items: userServiceItems,
+          })
         );
         const hasMonitorPermission = userServiceItems.some(
           item => item.can_monitor_equipment === true
@@ -192,7 +203,11 @@ export default function Login() {
 
   } catch (err) {
     console.error("Login error:", err);
-    setError("Invalid mobile number or password");
+    setError(
+      err.code === "ECONNABORTED"
+        ? "The server is taking longer than usual. Please try again."
+        : "Invalid mobile number or password"
+    );
   }
 
   setIsLoading(false);

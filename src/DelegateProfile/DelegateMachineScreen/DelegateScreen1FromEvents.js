@@ -1,20 +1,21 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from "react";
-import "../Screen1.css";
-import AIROlogo from "../Images/AIRO.png";
-import greenAire from "../Images/greenAire.png";
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo } from "react";
+import "../../Components/Screens/MachineScreensNew/Screen1.css";
+import AIROlogo from "../../Components/Screens/MachineScreensNew/Images/AIRO.png";
+import greenAire from "../../Components/Screens/MachineScreensNew/Images/greenAire.png";
 import { useNavigate } from "react-router-dom";
-import { AuthContext } from "../../../AuthContext/AuthContext";
-import TemperatureDial from "../TemperatureDial";
-import baseURL from "../../../ApiUrl/Apiurl";
-import NoServiceItems from "../NoServiceItems";
-import Loading from "../Loading";
-import ActionMenu from "../Screen1FromSensorReadings/components/ActionMenu";
-import ConfirmationDialog from "../Screen1FromSensorReadings/components/ConfirmationDialog";
-import EnvironmentReadings from "../Screen1FromSensorReadings/components/EnvironmentReadings";
-import MachineControls from "../Screen1FromSensorReadings/components/MachineControls";
-import MachineHeader from "../Screen1FromSensorReadings/components/MachineHeader";
-import PullToRefreshStatus from "../Screen1FromSensorReadings/components/PullToRefreshStatus";
-import ServiceSwitchOverlay from "../Screen1FromSensorReadings/components/ServiceSwitchOverlay";
+import { useDelegateServiceItems } from "../../Components/AuthContext/DelegateServiceItemContext";
+import { AuthContext } from "../../Components/AuthContext/AuthContext";
+import TemperatureDial from "../../Components/Screens/MachineScreensNew/TemperatureDial_delegate_screen";
+
+import NoServiceItems from "../../Components/Screens/MachineScreensNew/NoServiceItems";
+import Loading from "../../Components/Screens/MachineScreensNew/Loading";
+import ActionMenu from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/ActionMenu";
+import ConfirmationDialog from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/ConfirmationDialog";
+import EnvironmentReadings from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/EnvironmentReadings";
+import MachineControls from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/MachineControls";
+import MachineHeader from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/MachineHeader";
+import PullToRefreshStatus from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/PullToRefreshStatus";
+import ServiceSwitchOverlay from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/ServiceSwitchOverlay";
 import {
   FAN_SPEEDS,
   MAX_PULL,
@@ -22,30 +23,46 @@ import {
   MODE_MAP,
   PROCESSING_MESSAGES,
   PULL_THRESHOLD,
-} from "../Screen1FromSensorReadings/constants";
-import { sendRefreshCommand } from "../Screen1FromSensorReadings/controllerApi";
-import { getStoredService } from "../Screen1FromSensorReadings/utils";
+} from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/constants";
+import { sendRefreshCommand } from "../../Components/Screens/MachineScreensNew/Screen1FromSensorReadings/controllerApi";
+
+
+import { normalizeDelegateAssignments } from "./delegateAssignments";
 import {
   eventMatchesCommand,
   fetchAllDevicesSegregatedData,
   fetchSegregatedDeviceData,
   fetchStatusEventsForPCB,
-} from "../deviceEventsService";
-import {
-  fetchCustomerServiceItems,
-  getCachedCustomerServiceItems,
-} from "../serviceItemsService";
+} from "../../Components/Screens/MachineScreensNew/deviceEventsService";
+
 
 const COMMAND_CONFIRMATION_TIMEOUT_MS = 300000;
 const COMMAND_CONFIRMATION_POLL_MS = 2000;
 const COMMAND_CANCEL_DELAY_MS = 60000;
-const INITIALIZATION_RETRY_DELAYS_MS = [0, 5000, 10000, 20000, 30000];
 
-const Screen1FromEvents = () => {
+const DelegateScreen1FromEvents = () => {
   const { user, logout } = useContext(AuthContext);
-  const userId = user?.customer_id;
+  const {
+    serviceItems: delegateAssignments,
+    selectedServiceItem,
+    serviceItemDetails,
+    updateSelectedServiceItem,
+    loading: assignmentsLoading,
+    error: assignmentError,
+    retry: retryAssignments,
+  } = useDelegateServiceItems();
+  const userId = user?.delegate_id;
   const company_id = user?.company_id;
   const navigate = useNavigate();
+  const normalizedServiceItems = useMemo(
+    () =>
+      normalizeDelegateAssignments(
+        delegateAssignments,
+        serviceItemDetails,
+        userId
+      ),
+    [delegateAssignments, serviceItemDetails, userId]
+  );
 
   const [showTempConfirmDialog, setShowTempConfirmDialog] = useState(false);
   const [pendingTemperature, setPendingTemperature] = useState(null);
@@ -81,7 +98,8 @@ const processingRef = useRef(false);
   const cancelAvailabilityTimerRef = useRef(null);
 
   const [serviceItems, setServiceItems] = useState([]);
-  const [selectedService, setSelectedService] = useState(getStoredService());
+  const [selectedService, setSelectedService] = useState(null);
+  const serviceItemPermissions = selectedService?.permissions || {};
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [processing, setProcessing] = useState({ status: false, message: "" });
   const [canCancelProcessing, setCanCancelProcessing] = useState(false);
@@ -126,6 +144,9 @@ useEffect(() => {
 
   // Add this after your sensorData state declaration
 const isControlDisabled = () => {
+  // Delegate controls require explicit permission for the selected assignment.
+  if (!serviceItemPermissions.can_control_equipment) return true;
+
   // Disable if processing is happening
   if (processing.status) return true;
   
@@ -193,37 +214,52 @@ const isControlDisabled = () => {
       return null;
     }
   };
-  // Fetch service items with patient-facing status and bounded automatic retries.
+  // Initialize from the delegate assignment context, then load raw Events for its PCB.
   useEffect(() => {
     let cancelled = false;
-    const timers = new Set();
 
-    const wait = (delay) =>
-      new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          timers.delete(timer);
-          resolve();
-        }, delay);
-        timers.add(timer);
-      });
-
-    const initializeService = async (items, usingCachedItems = false) => {
-      if (cancelled) return;
-      setServiceItems(items);
-
-      if (items.length === 0) {
+    const initialize = async () => {
+      if (assignmentsLoading) return;
+      if (assignmentError) {
+        setConnectionStatus({
+          phase: "unavailable",
+          title: "Unable to load assigned machines",
+          message: "Delegate services are temporarily unavailable. Please retry.",
+        });
         setInitialDataLoaded(true);
         setLoading(false);
         return;
       }
 
-      const first = items[0];
-      setSelectedService(first);
-      activePCBRef.current = first.pcb_serial_number;
-      setLoadingMessage("Loading device data...");
-      setLoading(false);
+      setLoading(true);
+      setInitialDataLoaded(false);
+      setConnectionStatus({
+        phase: "connecting",
+        title: "Loading assigned machines",
+        message: "Please wait while we load your delegate access.",
+      });
+      setServiceItems(normalizedServiceItems);
 
-      const deviceData = await fetchDataForPCB(first.pcb_serial_number, first.service_item_id);
+      if (normalizedServiceItems.length === 0) {
+        setInitialDataLoaded(true);
+        setLoading(false);
+        return;
+      }
+
+      const selected =
+        normalizedServiceItems.find(
+          (item) => item.service_item_id === selectedServiceItem
+        ) || normalizedServiceItems[0];
+
+      setSelectedService(selected);
+      updateSelectedServiceItem(selected.service_item_id);
+      activePCBRef.current = selected.pcb_serial_number;
+      setLoading(false);
+      setLoadingMessage("Loading device Events...");
+
+      const deviceData = selected.pcb_serial_number
+        ? await fetchDataForPCB(selected.pcb_serial_number)
+        : null;
       if (cancelled) return;
 
       if (deviceData) {
@@ -232,133 +268,42 @@ const isControlDisabled = () => {
           outsideTemp: isOnline ? deviceData.outdoor_temperature?.value : null,
           humidity: isOnline ? deviceData.room_humidity?.value : null,
           roomTemp: isOnline ? deviceData.room_temperature?.value : null,
-          fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
-          temperature: isOnline ? deviceData.set_temperature?.value : 25,
+          fanSpeed: isOnline ? deviceData.fan_speed?.value ?? "0" : "0",
+          temperature: isOnline ? deviceData.set_temperature?.value ?? 25 : 25,
           powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
           mode: deviceData.mode?.value || "3",
-          errorFlag: isOnline ? deviceData.error_flag?.value : "0",
-          hvacBusy: isOnline ? deviceData.hvac_busy?.value : "0",
-          deviceId: first.pcb_serial_number,
+          errorFlag: isOnline ? deviceData.error_flag?.value || "0" : "0",
+          hvacBusy: isOnline ? deviceData.hvac_busy?.value || "0" : "0",
+          deviceId: selected.pcb_serial_number,
           alarmOccurred: deviceData.alarm_occurred?.value || "0",
           isOnline,
         });
-
-        setDisplayData({
-          fanSpeed: isOnline ? deviceData.fan_speed?.value : "0",
-          temperature: isOnline ? deviceData.set_temperature?.value : 25,
-          mode: deviceData.mode?.value || "3",
-          powerStatus: isOnline && deviceData.hvac_on?.value === "1" ? "on" : "off",
-        });
-
         const alarmValue = deviceData.alarm_occurred?.value;
         setErrorCount(alarmValue && alarmValue !== "0" ? Number(alarmValue) : 0);
       }
 
       setInitialDataLoaded(true);
+      setLoadingMessage("");
       setPullToRefresh((previous) => ({ ...previous, isRefreshing: false }));
       setManualRefresh(false);
-
-      if (usingCachedItems) {
-        setSwitchNotification({
-          show: true,
-          message: "Using your last available machine list while AIR₂O reconnects.",
-        });
-        const cachedNoticeTimer = setTimeout(
-          () => setSwitchNotification({ show: false, message: "" }),
-          5000
-        );
-        timers.add(cachedNoticeTimer);
-      }
     };
 
-    const initialize = async () => {
-      setLoading(true);
-      setInitialDataLoaded(false);
-      setConnectionStatus({
-        phase: "connecting",
-        title: "Connecting to AIR₂O services",
-        message: "Please wait while we load your machines.",
-      });
-
-      const slowTimer = setTimeout(() => {
-        if (!cancelled) {
-          setConnectionStatus((current) =>
-            current.phase === "connecting"
-              ? {
-                  phase: "slow",
-                  title: "Still connecting",
-                  message:
-                    "This is taking a little longer than usual. Your HVAC machine may still be operating normally.",
-                }
-              : current
-          );
-        }
-      }, 8000);
-      timers.add(slowTimer);
-
-      let lastError;
-      for (let attempt = 0; attempt < INITIALIZATION_RETRY_DELAYS_MS.length; attempt += 1) {
-        if (cancelled) return;
-
-        const delay = INITIALIZATION_RETRY_DELAYS_MS[attempt];
-        if (delay > 0) {
-          setConnectionStatus({
-            phase: "retrying",
-            title: "AIR₂O services are taking longer to respond",
-            message: `Retrying automatically (attempt ${attempt + 1} of ${INITIALIZATION_RETRY_DELAYS_MS.length})…`,
-          });
-          await wait(delay);
-          if (cancelled) return;
-        }
-
-        try {
-          const items = await fetchCustomerServiceItems(baseURL, userId, company_id);
-          if (cancelled) return;
-          timers.forEach(clearTimeout);
-          timers.clear();
-          await initializeService(items);
-
-          if (attempt > 0 && !cancelled) {
-            setSwitchNotification({ show: true, message: "Connection restored. Machine information is up to date." });
-            const noticeTimer = setTimeout(
-              () => setSwitchNotification({ show: false, message: "" }),
-              4000
-            );
-            timers.add(noticeTimer);
-          }
-          return;
-        } catch (error) {
-          lastError = error;
-          console.warn(`AIR₂O initialization attempt ${attempt + 1} failed:`, error);
-        }
-      }
-
+    initialize().catch((error) => {
       if (cancelled) return;
-      const cachedItems = getCachedCustomerServiceItems(baseURL, userId, company_id);
-      if (cachedItems?.length) {
-        await initializeService(cachedItems, true);
-        return;
-      }
-
-      console.error("AIR₂O services remain unavailable after automatic retries:", lastError);
-      setLoading(false);
+      console.error("Delegate Events initialization failed:", error);
       setConnectionStatus({
         phase: "unavailable",
-        title: "Unable to connect right now",
-        message:
-          "AIR₂O services are temporarily unavailable. Your HVAC machine may still be operating normally. Please retry.",
+        title: "Unable to load assigned machines",
+        message: "Delegate services are temporarily unavailable. Please retry.",
       });
-      setPullToRefresh((previous) => ({ ...previous, isRefreshing: false }));
-      setManualRefresh(false);
-    };
+      setLoading(false);
+      setInitialDataLoaded(true);
+    });
 
-    initialize();
     return () => {
       cancelled = true;
-      timers.forEach(clearTimeout);
-      timers.clear();
     };
-  }, [userId, company_id, initializationRun]);
+  }, [assignmentsLoading, assignmentError, normalizedServiceItems, selectedServiceItem, initializationRun, updateSelectedServiceItem]);
   // Foreground event refresh for the active PCB.
   const fetchData = async () => {
     const pcbSerialNumber = activePCBRef.current;
@@ -450,6 +395,7 @@ const fetchAllAlarms = async () => {
 };
   // Send temperature command to device
   const sendTemperatureCommand = async (temperature) => {
+    if (!serviceItemPermissions.can_control_equipment) return;
     try {
       const payload = {
         Header: "0xAA",
@@ -518,7 +464,7 @@ const fetchAllAlarms = async () => {
 
   // Handle mode change
   const handleModeChange = async (newMode) => {
-    if (processing.status || !sensorData.isOnline) return;
+    if (!serviceItemPermissions.can_control_equipment || processing.status || !sensorData.isOnline) return;
     
     const newModeCode = MODE_CODE_MAP[newMode] || 1;
     setDisplayData((prev) => ({ ...prev, mode: newModeCode.toString() }));
@@ -530,6 +476,7 @@ const fetchAllAlarms = async () => {
 
   // Send mode command
   const sendModeCommand = async (modeCode, modeName) => {
+    if (!serviceItemPermissions.can_control_equipment) return;
     try {
       const payload = {
         Header: "0xAA",
@@ -563,7 +510,7 @@ const fetchAllAlarms = async () => {
 
   // Handle fan speed change
   const handleFanSpeedChange = async (newPosition) => {
-    if (processing.status || !sensorData.isOnline) return;
+    if (!serviceItemPermissions.can_control_equipment || processing.status || !sensorData.isOnline) return;
     
     const newSpeed = FAN_SPEEDS[newPosition];
     setDisplayData((prev) => ({ ...prev, fanSpeed: newSpeed }));
@@ -577,6 +524,7 @@ const fetchAllAlarms = async () => {
 
   // Send fan command
   const sendFanCommand = async (fanSpeed) => {
+    if (!serviceItemPermissions.can_control_equipment) return;
     try {
       const payload = {
         Header: "0xAA",
@@ -816,6 +764,10 @@ const cancelCommandConfirmation = () => {
   }, [selectedService?.pcb_serial_number]);
 
   const sendRefreshToController = async () => {
+    if (!serviceItemPermissions.can_control_equipment) {
+      setRefreshStatus({ sending: false, success: false, message: "View-only access" });
+      return { success: false };
+    }
     if (!selectedService?.pcb_serial_number) {
       setRefreshStatus({ sending: false, success: false, message: "No device selected" });
       return { success: false };
@@ -900,15 +852,16 @@ const handleTouchEnd = async () => {
   };
 
   const handlePowerToggle = async () => {
+    if (!serviceItemPermissions.can_control_equipment) return;
     try {
-      if (processing.status || sensorData.hvacBusy == "1") {
-        const msg = sensorData.hvacBusy == "1" ? "System is busy, please wait..." : "Please wait...";
+      if (processing.status || sensorData.hvacBusy === "1") {
+        const msg = sensorData.hvacBusy === "1" ? "System is busy, please wait..." : "Please wait...";
         setProcessing({ status: true, message: msg });
         return;
       }
 
-      const newHvacValue = sensorData.powerStatus == "on" ? "0" : "1";
-      const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
+      const newHvacValue = sensorData.powerStatus === "on" ? "0" : "1";
+      const isShutdown = displayData?.fanSpeed === "3" || displayData?.mode === "0";
 
       const payload = {
         Header: "0xAA",
@@ -973,6 +926,7 @@ const handleTouchEnd = async () => {
     activePCBRef.current = nextPCB;
     lastStatusEventIdRef.current = null;
     setSelectedService(nextService);
+    updateSelectedServiceItem(nextService.service_item_id);
     setErrorCount(0);
     setSensorData({
       outsideTemp: null,
@@ -1088,8 +1042,18 @@ const handleTouchEnd = async () => {
     );
   }
 
+  if (assignmentError) {
+    return (
+      <Loading
+        onLogout={handleLogout}
+        title="Unable to load assigned machines"
+        message="Delegate services are temporarily unavailable. Please retry."
+        onRetry={retryAssignments}
+      />
+    );
+  }
   if (!loading && serviceItems.length === 0 && !manualRefresh) {
-    return <NoServiceItems onLogout={handleLogout} onNavigateHome={() => navigate("/home")} />;
+    return <NoServiceItems onLogout={handleLogout} onNavigateHome={() => navigate("/delegate-home")} />;
   }
 
   return (
@@ -1240,14 +1204,19 @@ const handleTouchEnd = async () => {
           </div>
         )}
 
-        {sensorData.errorFlag == "1" && (
+        {sensorData.errorFlag === "1" && (
           <div className="screen1-error-message">⚠️ System Error Detected - Control Disabled</div>
         )}
 
-        {sensorData.hvacBusy == "1" && !processing.status && (
+        {sensorData.hvacBusy === "1" && !processing.status && (
           <div className="screen1-busy-message">⏳ System is currently busy - Control Disabled</div>
         )}
 
+        {!serviceItemPermissions.can_control_equipment && (
+          <div className="screen1-busy-message">
+            View only - control permission was not granted for this machine.
+          </div>
+        )}
         <EnvironmentReadings sensorData={sensorData} />
       </div>
 
@@ -1265,7 +1234,7 @@ const handleTouchEnd = async () => {
           hasValidPCBSerial={hasValidPCBSerial}
           errorCount={errorCount}
           onAlarms={() =>
-            navigate("/alarms", {
+            navigate("/Delegate-alarms", {
               state: {
                 alarmData: {
                   alarmOccurred: sensorData.alarmOccurred,
@@ -1279,6 +1248,8 @@ const handleTouchEnd = async () => {
           }
           onNavigate={handleNavigation}
           onLogout={handleLogout}
+          servicePath={"/delegate-home"}
+          timersDisabled={!serviceItemPermissions.can_control_equipment}
         />
 
         <div className="footer-logo">
@@ -1289,5 +1260,5 @@ const handleTouchEnd = async () => {
   );
 };
 
-export default Screen1FromEvents;
+export default DelegateScreen1FromEvents;
 

@@ -95,6 +95,9 @@ const ServiceDropdown = ({
                       ? "Offline"
                       : "Checking"}
                   </span>
+                  {item.permissions?.can_control_equipment === false && (
+                    <span className="service-permission-badge">View only</span>
+                  )}
                   {isSelected && <span style={{ color: "#3E99ED" }}>✓</span>}
                   <AlarmBadge count={alarmCount} />
                 </div>
