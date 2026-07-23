@@ -1,0 +1,32 @@
+# Screen1 Events Implementation Notes
+
+- `Screen1.js` selects `Screen1FromEvents` by default.
+- Set `REACT_APP_MACHINE_DATA_SOURCE=sensor-readings` to use the legacy SensorReadings screen.
+- `Screen1FromEvents` reads raw device data from `https://mdata.air2o.net/events/filter/`.
+- The screen does not use `/get-latest-data/` for machine readings or command confirmation.
+- Service-item names and customer-to-PCB assignments come from `/service-items/`.
+- Connectivity comes from `https://mdata.air2o.net/connectivity-check/`.
+- Local React requests proxy to `https://testhvacoctane.air2o.net`.
+- Production/native default API URL is `https://testhvacoctane.air2o.net`.
+- Raw `0xA1` events provide temperature and humidity telemetry.
+- Raw `0xA3` events provide mode, fan, set temperature, power echo, and error state.
+- Event scaling and DS decoding are implemented in `deviceEventsService.js`.
+- `DS:0` means power OFF and every nonzero `DS` value means power ON.
+- Active-device readings refresh every 10 seconds when no command is processing.
+- Command confirmation polls the Events API every 2 seconds.
+- Power commands confirm from the newer event zero/nonzero `DS` state.
+- The power button updates immediately after the matching `DS` event arrives.
+- Command confirmation can run for up to 300 seconds and stops early on a matching event.
+- A Stop waiting action becomes available after 60 seconds of command confirmation.
+- The 300-second timeout performs a final Events refresh before ending processing.
+- Alarm count from raw events reflects the current `EC` state, not historical unresolved alarms.
+- Connectivity responses are cached for 20 seconds and shared by overlapping device requests.
+- Device Events are cached for 2 seconds and in-flight requests for the same PCB are reused.
+- Command-confirmation polling bypasses the Events cache to remain real-time.
+- Service-item responses are cached for 30 seconds to prevent duplicate React StrictMode requests.
+- The duplicate selected-device startup fetch was removed.
+- The all-machine alarm scan starts after the main machine screen renders.
+- The machine shell renders safely offline while its first Events snapshot loads.
+- Device dropdown rows show green Online, gray Offline, or Checking indicators from `is_online` snapshots.
+- Focused event parser and reducer tests are in `deviceEventsService.test.js`.
+- Latest validation: 8 focused tests passed and the production build completed with existing warnings.

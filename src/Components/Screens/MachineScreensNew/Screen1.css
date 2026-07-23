@@ -1770,3 +1770,53 @@ border-top-right-radius: 50px; */
   color: #c62828;
   border-left: 4px solid #dc3545;
 }
+
+.service-dropdown-item.online {
+  background-color: #e9f8ee;
+}
+
+.service-dropdown-item.online:hover {
+  background-color: #ddf3e5;
+}
+
+.service-online-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.service-online-status.online {
+  color: #16833f;
+}
+
+.service-online-status.offline,
+.service-online-status.checking {
+  color: #7b8794;
+}
+
+.service-online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+  box-shadow: 0 0 0 2px rgba(22, 131, 63, 0.12);
+}
+
+.screen1-cancel-processing {
+  margin-left: 12px;
+  padding: 6px 12px;
+  border: 1px solid #c80000;
+  border-radius: 16px;
+  background: #fff;
+  color: #c80000;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.screen1-cancel-processing:hover {
+  background: #fff1f1;
+}
