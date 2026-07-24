@@ -5,6 +5,7 @@ import baseURL from "../Components/ApiUrl/Apiurl";
 import "./Home.css";
 import { useNavigate } from "react-router-dom";
 
+
 const Home = () => {
   const { user } = useContext(AuthContext);
   const userId = user?.customer_id;
@@ -17,23 +18,12 @@ const Home = () => {
   useEffect(() => {
     const fetchServices = async () => {
       try {
-        // The API already filters by user_id, so we just need to count what's returned
         const response = await fetch(`${baseURL}/service-pools/?user_id=${userId}&company_id=${user?.company_id}`);
         if (response.ok) {
           const result = await response.json();
           const services = result.data || [];
-          
-          // Since the API filters by user_id, all services returned belong to this user
-          // But if the API doesn't filter properly, we can check if the service has a customer field
-          // or use the total_count from pagination
-          
-          // Option 1: Use the total_count from pagination
-          const totalCount = result.pagination?.total_count || services.length;
-          setServiceCount(totalCount);
-          
-          console.log("Services fetched:", services.length, "Total:", totalCount);
-        } else {
-          console.error("Failed to fetch services:", response.status);
+          const filteredServices = services.filter(service => service.customer === userId);
+          setServiceCount(filteredServices.length);
         }
       } catch (error) {
         console.error("Error fetching services:", error);
@@ -42,65 +32,42 @@ const Home = () => {
 
     const fetchDelegates = async () => {
       try {
-        let allDelegates = [];
-        let currentPage = 1;
-        let hasMorePages = true;
-
-        while (hasMorePages) {
-          const response = await fetch(`${baseURL}/delegates/?page=${currentPage}`);
-          if (response.ok) {
-            const result = await response.json();
-            const delegates = result.data || [];
-            allDelegates = [...allDelegates, ...delegates];
-            
-            const pagination = result.pagination;
-            if (pagination && pagination.has_next) {
-              currentPage++;
-            } else {
-              hasMorePages = false;
-            }
-          } else {
-            console.error("Failed to fetch delegates:", response.status);
-            hasMorePages = false;
-          }
+        const response = await fetch(`${baseURL}/delegates/`);
+        if (response.ok) {
+          const result = await response.json();
+          const delegates = result.data || [];
+          const filteredDelegates = delegates.filter(delegate => delegate.customer === userId);
+          setDelegateCount(filteredDelegates.length);
         }
-
-        // Filter delegates by checking if delegate_id starts with userId
-        const filteredDelegates = allDelegates.filter(delegate => {
-          return delegate.delegate_id && delegate.delegate_id.startsWith(`${userId}-`);
-        });
-        
-        setDelegateCount(filteredDelegates.length);
-        console.log(`Found ${filteredDelegates.length} delegates for user ${userId}`);
-        
       } catch (error) {
         console.error("Error fetching delegates:", error);
       }
     };
 
-    const fetchCustomerUsername = async () => {
-      try {
-        const response = await fetch(
-          `${baseURL}/customers/${userId}/?user_id=${userId}&company_id=${user?.company_id}`
-        );
+   const fetchCustomerUsername = async () => {
+  try {
+    const response = await fetch(
+      `${baseURL}/customers/${userId}/?user_id=${userId}&company_id=${user?.company_id}`
+    );
 
-        if (response.ok) {
-          const result = await response.json();
-          const customer = result.data;
+    if (response.ok) {
+      const result = await response.json();
+      const customer = result.data; // It's a single object, not an array
 
-          if (customer && customer.username) {
-            setUsername(customer.username);
-            console.log("Fetched username:", customer.username);
-          } else {
-            console.warn("Customer not found or missing username");
-          }
-        } else {
-          console.error("Failed to fetch customer:", response.status);
-        }
-      } catch (error) {
-        console.error("Error fetching customer username:", error);
+      if (customer && customer.username) {
+        setUsername(customer.username);
+        console.log("Fetched username:", customer.username);
+      } else {
+        console.warn("Customer not found or missing username");
       }
-    };
+    } else {
+      console.error("Failed to fetch customer:", response.status);
+    }
+  } catch (error) {
+    console.error("Error fetching customer username:", error);
+  }
+};
+
 
     if (userId) {
       fetchServices();
@@ -114,6 +81,7 @@ const Home = () => {
       {username && <h2 className="welcome-text">Hey, {username}</h2>}
       
       <div className="card-container">
+        {/* First Card → Navigate to /request */}
         <div 
           className="info-card" 
           onClick={() => navigate("/request")}
@@ -123,6 +91,7 @@ const Home = () => {
           <p>{serviceCount}</p>
         </div>
 
+        {/* Second Card → Navigate to /delegates */}
         <div 
           className="info-card" 
           onClick={() => navigate("/view-delegates")}
