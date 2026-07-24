@@ -8548,7 +8548,7 @@ const DelegateScreen1 = () => {
             className="control-btn"
             onClick={() => {
               console.log("⏰ Timers button clicked");
-              handleNavigation("/timers");
+              handleNavigation("/delegate-timers");
             }}
             disabled={!serviceItemPermissions?.can_control_equipment}
           >
@@ -8560,7 +8560,7 @@ const DelegateScreen1 = () => {
             className="control-btn"
             onClick={() => {
               console.log("⚙️ Settings button clicked");
-              handleNavigation("/settings");
+              handleNavigation("/delegate-settings");
             }}
           >
             <FiSettings size={20} />

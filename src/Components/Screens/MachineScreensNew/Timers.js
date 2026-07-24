@@ -30,7 +30,7 @@ import NavScreen from "../../../Components/Screens/Navbar/Navbar";
 const Timers = () => {
   return (
     <div style={{ background: "linear-gradient(to bottom, #3E99ED, #2B7ED6)", height: "100vh" }}>
-      <div className="delegate-card-container">
+      <div className="machine-placeholder-content">
         <div style={{
           padding: '0px',
           maxWidth: '800px',

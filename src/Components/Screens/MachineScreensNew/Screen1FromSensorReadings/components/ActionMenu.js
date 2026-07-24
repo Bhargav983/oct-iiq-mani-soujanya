@@ -9,6 +9,8 @@ const ActionMenu = ({
   onLogout,
   servicePath = "/machine",
   timersDisabled = false,
+  timersPath = "/timers",
+  settingsPath = "/settings",
 }) => (
   <div className="control-buttons">
     <button
@@ -50,11 +52,11 @@ const ActionMenu = ({
       <span>Alarms</span>
     </button>
 
-    <button className="control-btn" onClick={() => onNavigate("/timers")} disabled={timersDisabled}>
+    <button className="control-btn" onClick={() => onNavigate(timersPath)} disabled={timersDisabled}>
       <FiWatch size={20} />
       <span>Timers</span>
     </button>
-    <button className="control-btn" onClick={() => onNavigate("/settings")}>
+    <button className="control-btn" onClick={() => onNavigate(settingsPath)}>
       <FiSettings size={20} />
       <span>Settings</span>
     </button>

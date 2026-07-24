@@ -122,7 +122,7 @@
 //   };
 
 //   return (
-//     <div className="delegate-card-container">
+//     <div className="alarm-card-container">
 
 //       {/* 🔥 Full Page Loader Here */}
 //       {loading && <FullScreenLoader />}
@@ -491,7 +491,7 @@ const AlarmsPage = () => {
   return (
     // <div style={{ background: "#2d86e6", height: "100vh" }}>
     <div style={{ background: "linear-gradient(to bottom, #3E99ED, #2B7ED6)", height: "100vh" }}>
-      <div className="delegate-card-container">
+      <div className="alarm-card-container">
         {loading && <FullScreenLoader />}
 
         <div style={{

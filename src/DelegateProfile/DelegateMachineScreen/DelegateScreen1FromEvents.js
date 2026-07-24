@@ -1249,6 +1249,8 @@ const handleTouchEnd = async () => {
           onNavigate={handleNavigation}
           onLogout={handleLogout}
           servicePath={"/delegate-home"}
+          timersPath="/delegate-timers"
+          settingsPath="/delegate-settings"
           timersDisabled={!serviceItemPermissions.can_control_equipment}
         />
 

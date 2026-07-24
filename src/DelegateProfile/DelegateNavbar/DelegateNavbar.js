@@ -1,73 +1,50 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  FaHome,
-  FaCogs,
-  FaEnvelope,
-  FaCommentDots,
+  FaAngleLeft,
   FaBell,
+  FaCogs,
+  FaCommentDots,
+  FaEnvelope,
+  FaHome,
   FaUserCircle,
-  FaAngleLeft
-} from 'react-icons/fa';
-import './DelegateNavbar.css';
-import logo from '../../Logos/hvac-logo-new.jpg';
+} from "react-icons/fa";
+import axios from "axios";
+import "./DelegateNavbar.css";
+import logo from "../../Logos/hvac-logo-new.jpg";
 import { useDelegateServiceItems } from "../../Components/AuthContext/DelegateServiceItemContext";
 import { AuthContext } from "../../Components/AuthContext/AuthContext";
-import axios from 'axios';
-import baseURL from '../../Components/ApiUrl/Apiurl';
-import logo9 from "../../Components/Screens/MachineScreensNew/Images/AIRO.png"
-
-
+import baseURL from "../../Components/ApiUrl/Apiurl";
 
 const screens = [
-  { label: 'Dashboard', name: '/delegate-home', icon: <FaHome />, key: 'dashboard' },
-  { label: 'Requests', name: '/delegate-display-request', icon: <FaEnvelope />, key: 'requests' },
-  { label: 'Feedback', name: '/delegate-survey', icon: <FaCommentDots />, key: 'feedback' },
-  { label: 'Monitor', name: '/delegate-machinescreen1', icon: <FaCogs />, key: 'machinescreen1' },
+  { label: "Dashboard", name: "/delegate-home", icon: <FaHome />, key: "dashboard" },
+  { label: "Requests", name: "/delegate-display-request", icon: <FaEnvelope />, key: "requests" },
+  { label: "Feedback", name: "/delegate-survey", icon: <FaCommentDots />, key: "feedback" },
+  { label: "Monitor", name: "/delegate-machinescreen1", icon: <FaCogs />, key: "machinescreen1" },
 ];
 
-const NavScreen = () => {
+const DelegateNavbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [activeIcon, setActiveIcon] = useState(location.pathname);
+  const profileRef = useRef(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const profileRef = useRef();
+  const [serviceItemsList, setServiceItemsList] = useState([]);
   const { logout, user } = useContext(AuthContext);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [serviceItemsList, setServiceItemsList] = useState([]); // NEW: Store service items from API
-  
-  // Use the enhanced context
-  const { 
-    serviceItems, 
-    selectedServiceItem, 
-    serviceItemPermissions, 
+  const {
+    serviceItems,
+    selectedServiceItem,
+    serviceItemPermissions,
     updateSelectedServiceItem,
-    loading 
+    loading,
   } = useDelegateServiceItems();
 
-  // NEW: Fetch service items from API to get service_item_name
-  useEffect(() => {
-    if (user?.company_id && user?.delegate_id) {
-      axios.get(`${baseURL}/service-items/?user_id=${user.delegate_id}&company_id=${user.company_id}`)
-        .then((response) => {
-          try {
-            const data = Array.isArray(response.data) ? response.data : 
-                        (response.data?.data && Array.isArray(response.data.data) ? response.data.data : []);
-            setServiceItemsList(data);
-          } catch (error) {
-            console.error('Error processing service items data:', error);
-            setServiceItemsList([]);
-          }
-        })
-        .catch((error) => {
-          console.error('Error fetching service items:', error);
-          setServiceItemsList([]);
-        });
-    }
-  }, [user?.company_id, user?.delegate_id]);
+  useLayoutEffect(() => {
+    document.body.classList.add("delegate-nav-active");
+    return () => document.body.classList.remove("delegate-nav-active");
+  }, []);
 
   useEffect(() => {
-    setActiveIcon(location.pathname);
+    setShowProfileMenu(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -76,180 +53,156 @@ const NavScreen = () => {
         setShowProfileMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, []);
 
-  const handleIconClick = (path, isDisabled) => {
-    if (!isDisabled) navigate(path);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.company_id || !user?.delegate_id) return undefined;
 
-  const handleServiceItemChange = (e) => {
-    const selectedId = e.target.value;
-    updateSelectedServiceItem(selectedId);
-  };
+    axios
+      .get(`${baseURL}/service-items/?user_id=${user.delegate_id}&company_id=${user.company_id}`)
+      .then((response) => {
+        if (cancelled) return;
+        const data = Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response.data?.data)
+            ? response.data.data
+            : [];
+        setServiceItemsList(data);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Error fetching delegate service items:", error);
+          setServiceItemsList([]);
+        }
+      });
 
-  // UPDATED: Get service item name for display
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.company_id, user?.delegate_id]);
+
   const getServiceItemName = (serviceItemId) => {
-    if (!serviceItemId) return 'Select Service Item';
-    
-    // First check in the serviceItemsList from API
-    const itemFromApi = serviceItemsList.find(item => item.service_item_id === serviceItemId);
-    if (itemFromApi) {
-      return itemFromApi.service_item_name || serviceItemId;
-    }
-    
-    // Fallback to context service items
-    const itemFromContext = serviceItems.find(item => item.service_item === serviceItemId);
-    return itemFromContext ? itemFromContext.service_item_name || serviceItemId : serviceItemId;
+    const apiItem = serviceItemsList.find((item) => item.service_item_id === serviceItemId);
+    if (apiItem) return apiItem.service_item_name || serviceItemId;
+    const assignment = serviceItems.find((item) => item.service_item === serviceItemId);
+    return assignment?.service_item_name || serviceItemId;
   };
 
-  // UPDATED: Get display name for selected service item
-  const getSelectedServiceItemDisplayName = () => {
-    if (!selectedServiceItem) return 'Select Service Item';
-    return getServiceItemName(selectedServiceItem);
-  };
-
-  const getDisabledStatus = (key) => {
-    if (key === 'dashboard') return false;
-
-    if (key === 'requests') {
-      return !(serviceItemPermissions.can_raise_service_request);
-      // return !(serviceItemPermissions.can_raise_service_request && serviceItemPermissions.can_close_service_request);
+  const isDisabled = (key) => {
+    if (key === "dashboard") return false;
+    if (key === "requests") return !serviceItemPermissions.can_raise_service_request;
+    if (key === "feedback") {
+      return !(
+        serviceItemPermissions.can_submit_customer_satisfaction_survey &&
+        serviceItemPermissions.can_log_customer_complaints
+      );
     }
-
-    if (key === 'feedback') {
-      return !(serviceItemPermissions.can_submit_customer_satisfaction_survey && serviceItemPermissions.can_log_customer_complaints);
-    }
-    if (key === 'machinescreen1') {
-      return !(serviceItemPermissions.can_monitor_equipment);
-      // return !(serviceItemPermissions.can_monitor_equipment && serviceItemPermissions.can_control_equipment);
-    }
-
+    if (key === "machinescreen1") return !serviceItemPermissions.can_monitor_equipment;
     return true;
   };
 
   const handleLogout = async () => {
     setShowProfileMenu(false);
-    setIsLoggingOut(true);
-    
-    try {
-      await logout();
-      navigate("/");
-    } catch (error) {
-      console.error('Logout error:', error);
-      setIsLoggingOut(false);
-    }
+    await logout();
+    navigate("/");
   };
-   const handleGoBack = () => {
-    navigate("/delegate-machinescreen1"); // Go back to previous page
-  };
-
-  if (loading) {
-    return (
-      <>
-        <div className="top-navbar">
-          <img src={logo} alt="Logo" className="logo-img" />
-          <div className="top-icons">
-            <div>Loading service items...</div>
-          </div>
-        </div>
-        <div className="navbar-container">
-          {screens.map((item) => (
-            <button key={item.name} className="nav-item disabled" disabled>
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </>
-    );
-  }
 
   return (
     <>
-      {/* Top Navbar */}
-      <div className="top-navbar">
-        <img src={logo} alt="Logo" className="logo-img" />
-        <div className="back-arrow"  style={{ cursor: "pointer" }}>
-                  {/* <FaArrowLeft size={24} color="#fff" /> */}
-                  <FaAngleLeft 
-          size={24} 
-          color="#fff" 
-          style={{ marginTop: "30px", cursor: "pointer" }} 
-          onClick={handleGoBack}
-        />
-                </div>
-        <div className="top-icons">
-          <div className="service-dropdown">
-            <select
-              className="dropdown-select"
-              value={selectedServiceItem}
-              onChange={handleServiceItemChange}
+      <header className="delegate-top-navbar">
+        <div className="delegate-top-row">
+          <button
+            type="button"
+            className="delegate-nav-icon-button delegate-nav-back"
+            aria-label="Back to delegate monitor"
+            onClick={() => navigate("/delegate-machinescreen1")}
+          >
+            <FaAngleLeft aria-hidden="true" />
+          </button>
+
+          <img src={logo} alt="AIR₂O" className="delegate-nav-logo" />
+
+          <div className="delegate-nav-actions">
+            <button
+              type="button"
+              className="delegate-nav-icon-button"
+              aria-label="Delegate notifications"
+              onClick={() => alert("Notifications Clicked!")}
             >
-              <option value="">Select Service Item</option>
-              {serviceItems.map((item) => {
-                // UPDATED: Get display name for each option
-                const displayName = getServiceItemName(item.service_item);
-                return (
-                  <option key={item.service_item} value={item.service_item}>
-                    {displayName}
-                  </option>
-                );
-              })}
-            </select>
-            
-            {/* Display selected service item name for better UX */}
-            {/* {selectedServiceItem && (
-              <div className="selected-service-info">
-                <small>Selected: {getSelectedServiceItemDisplayName()}</small>
-              </div>
-            )} */}
-          </div>
+              <FaBell aria-hidden="true" />
+            </button>
 
-          <FaBell className="top-icon" onClick={() => alert('Notifications Clicked!')} />
+            <div className="delegate-profile" ref={profileRef}>
+              <button
+                type="button"
+                className="delegate-nav-icon-button"
+                aria-label="Open delegate profile menu"
+                aria-expanded={showProfileMenu}
+                onClick={() => setShowProfileMenu((open) => !open)}
+              >
+                <FaUserCircle aria-hidden="true" />
+              </button>
 
-          {/* Profile Dropdown */}
-          <div className="profile-dropdown" ref={profileRef}>
-            <FaUserCircle
-              className="top-icon"
-              style={{ fontSize: '26px' }}
-              onClick={() => setShowProfileMenu(prev => !prev)}
-            />
-            {showProfileMenu && (
-              <div className="dropdown-menu" style={{ display: 'block', background: 'white' }}>
-                <div onClick={() => { setShowProfileMenu(false); navigate('/delegate-profile-details'); }}>
-                  Profile
+              {showProfileMenu && (
+                <div className="delegate-profile-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => navigate("/delegate-profile-details")}
+                  >
+                    Profile
+                  </button>
+                  <button type="button" role="menuitem" onClick={handleLogout}>
+                    Logout
+                  </button>
                 </div>
-                <div onClick={handleLogout}>
-                  Logout
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Bottom Navbar */}
-      <div className="navbar-container">
+        <div className="delegate-service-selector">
+          <label htmlFor="delegate-service-item">Assigned service item</label>
+          <select
+            id="delegate-service-item"
+            value={selectedServiceItem || ""}
+            onChange={(event) => updateSelectedServiceItem(event.target.value)}
+            disabled={loading || serviceItems.length === 0}
+          >
+            <option value="">
+              {loading ? "Loading service items..." : "Select Service Item"}
+            </option>
+            {serviceItems.map((item) => (
+              <option key={item.service_item} value={item.service_item}>
+                {getServiceItemName(item.service_item)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </header>
+
+      <nav className="delegate-bottom-navbar" aria-label="Delegate navigation">
         {screens.map((item) => {
-          const isDisabled = getDisabledStatus(item.key);
+          const disabled = isDisabled(item.key);
           return (
             <button
+              type="button"
               key={item.name}
-              className={`nav-item ${activeIcon === item.name ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
-              onClick={() => handleIconClick(item.name, isDisabled)}
-              disabled={isDisabled}
-              style={isDisabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+              className={`delegate-bottom-nav-item ${location.pathname === item.name ? "is-active" : ""}`}
+              disabled={disabled}
+              onClick={() => !disabled && navigate(item.name)}
             >
               {item.icon}
               <span>{item.label}</span>
             </button>
           );
         })}
-      </div>
+      </nav>
     </>
   );
 };
 
-export default NavScreen;
+export default DelegateNavbar;

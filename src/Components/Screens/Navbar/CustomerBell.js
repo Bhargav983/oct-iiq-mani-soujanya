@@ -76,10 +76,10 @@ const CustomerBell = () => {
           />
 
           <div style={{
-            position:     'absolute',
-            top:          '130%',
-            right:        0,
-            width:        '340px',
+            position:     'fixed',
+            top:          'calc(env(safe-area-inset-top, 0px) + 56px)',
+            right:        '12px',
+            width:        'min(340px, calc(100vw - 24px))',
             background:   '#fff',
             borderRadius: '12px',
             boxShadow:    '0 4px 24px rgba(0,0,0,0.13)',

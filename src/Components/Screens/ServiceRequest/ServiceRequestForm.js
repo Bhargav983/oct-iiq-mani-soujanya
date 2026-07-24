@@ -541,21 +541,20 @@ const deleteMediaFile = async (mediaId) => {
   };
 
   return (
-    <div className="container service-request-form">
-      <div className="card requestformcard">
-        <div className="card-header">
+    <div className="service-request-form">
+      <div className="service-request-card">
+        <div className="service-request-header">
           <h5 className="mb-1">{isEditMode ? 'Edit Service Request' : 'Service Request Form'}</h5>
           <h6 className="text" style={{ color: '' }}>
             {isEditMode ? 'Update the service request details' : 'Please fill in the service request details'}
           </h6>
         </div>
-        <div className="card-body">
+        <div className="service-request-body">
           <form onSubmit={handleSubmit}>
             <div className="row g-3">
             <div className="col-md-6">
   <label
     className="formlabel"
-    style={{ marginLeft: "-155px" }}
   >
     Service Item ID
   </label>
@@ -601,7 +600,7 @@ const deleteMediaFile = async (mediaId) => {
 </div>
 
               <div className="col-md-6">
-                <label className="formlabel" style={{ marginLeft: '-85px' }}>Preferred Service Date</label>
+                <label className="formlabel">Preferred Service Date</label>
                 <input
                   type="date"
                   name="preferred_date"
@@ -613,7 +612,7 @@ const deleteMediaFile = async (mediaId) => {
               </div>
 
               <div className="col-md-6">
-                <label className="formlabel" style={{ marginLeft: '-85px' }}>Preferred Service Time</label>
+                <label className="formlabel">Preferred Service Time</label>
                 <input
                   type="time"
                   name="preferred_time"
@@ -626,7 +625,7 @@ const deleteMediaFile = async (mediaId) => {
 
               {/* Problem Type Field - Added after Preferred Time */}
               <div className="col-md-6">
-                <label className="formlabel" style={{ marginLeft: '-145px' }}>Problem Type</label>
+                <label className="formlabel">Problem Type</label>
                 <select
                   name="problem_type"
                   value={form.problem_type}
@@ -648,7 +647,7 @@ const deleteMediaFile = async (mediaId) => {
               </div>
 
               <div className="col-12">
-                <label className="formlabel" style={{ marginLeft: '-137px' }}>Request Details</label>
+                <label className="formlabel">Request Details</label>
                 <textarea
                   name="request_details"
                   value={form.request_details}
@@ -661,7 +660,7 @@ const deleteMediaFile = async (mediaId) => {
 
               {/* File Upload Section */}
               <div className="col-12">
-                <label className="formlabel" style={{ marginLeft: '7px' }}>
+                <label className="formlabel">
                   {isEditMode ? 'Manage Images & Videos' : 'Upload Images & Videos (Optional)'}
                 </label>
                 <div className="file-upload-section">
@@ -769,7 +768,7 @@ const deleteMediaFile = async (mediaId) => {
                 </div>
               </div>
 
-              <div className="d-flex justify-content-center mt-3 gap-3">
+              <div className="service-request-actions">
                 <button 
                   type="button" 
                   className="btn btn-secondary" 

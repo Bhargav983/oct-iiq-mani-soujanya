@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import "./Screen1.css";
 
 const dataSource = process.env.REACT_APP_MACHINE_DATA_SOURCE || "events";
 

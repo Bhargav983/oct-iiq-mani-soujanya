@@ -221,8 +221,8 @@ export default function Login() {
         </div>
       )}
 
-      <div className="container">
-        <div className="card">
+      <div className="login-page">
+        <div className="login-card">
           <div className="logoContainer">
             <img src={logo} alt="AIRO Logo" className="logo" />
           </div>

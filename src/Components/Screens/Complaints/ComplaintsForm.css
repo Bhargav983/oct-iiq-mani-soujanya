@@ -1,7 +1,7 @@
 /* Full page setup */
 .complaint-form-page {
   background: #f8f9fa;
-  height: 100vh;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -9,8 +9,8 @@
 /* Wrapper: fills space between top & bottom navbar */
 .complaint-form-wrapper {
   flex: 1;
-  margin-top: 60px;  /* ✅ Push below fixed top-navbar */
-  margin-bottom: 65px; /* ✅ Push above bottom navbar */
+  margin-top: 0;
+  margin-bottom: 0;
   padding: 16px;
   display: flex;
   overflow-y: auto; /* ✅ Scroll page content, not under nav */

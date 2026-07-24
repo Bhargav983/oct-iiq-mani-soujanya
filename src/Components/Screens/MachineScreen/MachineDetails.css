@@ -1,16 +1,16 @@
 /* Machine Details Wrapper */
 .machine-details-wrapper {
-  padding: 60px 16px 90px;
+  padding: 16px 16px 32px;
   min-height: 100vh;
   background-color: #f9f9f9;
   box-sizing: border-box;
-  margin-top: 5%;
+  margin-top: 0;
 }
 
 .machine-details-header {
   margin-bottom: 24px;
 
-    margin-top: 26px;
+  margin-top: 0;
 }
 
 .machine-details-title {

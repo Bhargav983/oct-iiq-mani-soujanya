@@ -409,15 +409,15 @@ const AddDelegate = () => {
   };
 
   return (
-    <div className="container add-delegate-form">
-      <div className="card">
-        <div className="card-header">
+    <div className="add-delegate-form">
+      <div className="add-delegate-card">
+        <div className="add-delegate-header">
           <h5 className="mb-1">Add Delegate</h5>
           <h6 className="text" style={{ color: 'white' }}>
             Please fill in the delegate details
           </h6>
         </div>
-        <div className="card-body">
+        <div className="add-delegate-body">
           <form onSubmit={handleSubmit}>
             <div className="row g-3">
               <div className="col-md-6">
@@ -461,7 +461,7 @@ const AddDelegate = () => {
                 />
               </div>
 
-              <div className="button-container">
+              <div className="add-delegate-actions">
                   <button
                     type="button"
                     className="cancel-btn"

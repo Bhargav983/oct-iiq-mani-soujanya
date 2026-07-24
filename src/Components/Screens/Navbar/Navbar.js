@@ -1,312 +1,41 @@
-// import React, { useState, useEffect, useRef, useContext } from 'react';
-// import { useLocation, useNavigate } from 'react-router-dom';
-// import {
-//   FaHome,
-//   FaCogs,
-//   FaEnvelope,
-//   FaCommentDots,
-//   FaPlus,
-//   FaBell,
-//   FaUserCircle, // 👈 Profile icon
-// } from 'react-icons/fa';
-// import './Navbar.css';
-// import logo from '../../../Logos/hvac-logo-new.jpg';
-// import { AuthContext } from "../../AuthContext/AuthContext";
-
-// const screens = [
-//   { label: 'Dashboard', name: '/home', icon: <FaHome /> },
-//   { label: 'Machines', name: '/machine', icon: <FaCogs /> },
-//   { label: 'Requests', name: '/request', icon: <FaEnvelope /> },
-//   { label: 'Delegates', name: '/view-delegates', icon: <FaEnvelope /> },
-//   { label: 'Feedback', name: '/display-feedback', icon: <FaCommentDots /> },
-// ];
-
-// const NavScreen = () => {
-//   const navigate = useNavigate();
-//   const location = useLocation();
-//   const [activeIcon, setActiveIcon] = useState(location.pathname);
-//   const [showProfileMenu, setShowProfileMenu] = useState(false);
-//   const profileRef = useRef();
-//   const { logout } = useContext(AuthContext);
-
-//   const handleLogout = () => {
-//   setShowProfileMenu(false);
-//   logout();
-//   navigate("/");
-// };
-
-
-//   useEffect(() => {
-//     setActiveIcon(location.pathname);
-//   }, [location.pathname]);
-
-//   // Close dropdown on outside click
-//   useEffect(() => {
-//     const handleClickOutside = (event) => {
-//       if (profileRef.current && !profileRef.current.contains(event.target)) {
-//         setShowProfileMenu(false);
-//       }
-//     };
-//     document.addEventListener('mousedown', handleClickOutside);
-//     return () => document.removeEventListener('mousedown', handleClickOutside);
-//   }, []);
-
-//   const handleIconClick = (path) => {
-//     navigate(path);
-//   };
-
-//   return (
-//     <>
-//       {/* Top Navbar */}
-//       <div className="top-navbar">
-//         <img src={logo} alt="Logo" className="logo-img" />
-//         <div className="top-icons">
-//           <FaBell className="top-icon" onClick={() => alert('Notifications Clicked!')} />
-          
-//           {/* Profile Dropdown */}
-//           <div className="profile-dropdown" ref={profileRef}>
-//             <FaUserCircle
-//   className="top-icon"
-//    style={{ fontSize: '26px' }}
-//   onClick={() => {
-//     // console.log('Profile icon clicked');
-//     setShowProfileMenu((prev) => !prev);
-//   }}
-// />
-//             {showProfileMenu && (
-//   <div className="dropdown-menu" style={{ display: 'block', background: 'white' }}>
-//   <div onClick={() => { setShowProfileMenu(false); navigate('/dashboard'); }}>
-//     Profile
-//   </div>
-//    <div onClick={() => { setShowProfileMenu(false); navigate('/connect'); }}>
-//     Connect 
-//   </div>
-//  <div onClick={handleLogout}>
-//   Logout
-// </div>
-// </div>
-// )}
-
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* Bottom Navbar */}
-//       <div className="navbar-container">
-//         {screens.map((item, index) => {
-//           if (index === 2) {
-//             return (
-//               <React.Fragment key={item.name}>
-//                 <button
-//                   className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-//                   onClick={() => handleIconClick(item.name)}
-//                 >
-//                   {item.icon}
-//                   <span>{item.label}</span>
-//                 </button>
-
-//                 {/* Floating center button */}
-//                 <div className="center-button" onClick={() => navigate('/service-form')}>
-//                   <FaPlus />
-//                 </div>
-//               </React.Fragment>
-//             );
-//           }
-
-//           return (
-//             <button
-//               key={item.name}
-//               className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-//               onClick={() => handleIconClick(item.name)}
-//             >
-//               {item.icon}
-//               <span>{item.label}</span>
-//             </button>
-//           );
-//         })}
-//       </div>
-//     </>
-//   );
-// };
-
-// export default NavScreen;
-
-
-
-
-// src/Customer/Navbar/Navbar.js  (your NavScreen file)
-// import React, { useState, useEffect, useRef, useContext } from 'react';
-// import { useLocation, useNavigate } from 'react-router-dom';
-// import {
-//   FaHome, FaCogs, FaEnvelope, FaPlus,
-//   FaBell, FaUserCircle, FaUsers, FaInbox,
-// } from 'react-icons/fa';
-// import './Navbar.css';
-// import logo from '../../../Logos/hvac-logo-new.jpg';
-// import { AuthContext } from '../../AuthContext/AuthContext';
-// import CustomerBell from './CustomerBell'; // ← ADD THIS IMPORT
-// import logo9 from "../../Screens/MachineScreensNew/Images/AIRO.png"
-// const screens = [
-//   { label: 'Dashboard', name: '/home',           icon: <FaHome /> },
-//   { label: 'Machines',  name: '/machine',         icon: <FaCogs /> },
-//   { label: 'Requests',  name: '/request',         icon: <FaUsers /> },
-//   { label: 'Delegates', name: '/view-delegates',  icon: <FaInbox /> },
-// ];
-
-// const NavScreen = () => {
-//   const navigate   = useNavigate();
-//   const location   = useLocation();
-//   const [activeIcon, setActiveIcon]         = useState(location.pathname);
-//   const [showProfileMenu, setShowProfileMenu] = useState(false);
-//   const profileRef = useRef();
-//   const { logout, user } = useContext(AuthContext); // ← add user here
-
-//   const handleLogout = () => {
-//     setShowProfileMenu(false);
-//     logout();
-//     navigate("/");
-//   };
-
-//   useEffect(() => {
-//     setActiveIcon(location.pathname);
-//   }, [location.pathname]);
-
-//   useEffect(() => {
-//     const handleClickOutside = (event) => {
-//       if (profileRef.current && !profileRef.current.contains(event.target)) {
-//         setShowProfileMenu(false);
-//       }
-//     };
-//     document.addEventListener('mousedown', handleClickOutside);
-//     return () => document.removeEventListener('mousedown', handleClickOutside);
-//   }, []);
-
-//   const handleIconClick = (path) => {
-//     navigate(path);
-//   };
-
-//   return (
-//     <>
-//       {/* Top Navbar */}
-//       <div className="top-navbar">
-//         <img src={logo9} alt="Logo" className="logo-img" />
-//         <div className="top-icons">
-//           <FaHome
-//             className="top-icon"
-//             onClick={() => navigate("/machinescreen1")}
-//             style={{ cursor: "pointer" }}
-//           />
-
-//           {/* ✅ REPLACE the old FaBell line with this */}
-//           {user?.customer_id
-//             ? <CustomerBell />
-//             : <FaBell className="top-icon" />
-//           }
-
-//           {/* Profile Dropdown — unchanged */}
-//           <div className="profile-dropdown" ref={profileRef}>
-//             <FaUserCircle
-//               className="top-icon"
-//               style={{ fontSize: '26px' }}
-//               onClick={() => setShowProfileMenu((prev) => !prev)}
-//             />
-//             {showProfileMenu && (
-//               <div className="dropdown-menu" style={{ display: 'block', background: 'white' }}>
-//                 <div onClick={() => { setShowProfileMenu(false); navigate('/dashboard'); }}>
-//                   Profile
-//                 </div>
-//                 <div onClick={() => { setShowProfileMenu(false); navigate('/connect'); }}>
-//                   Connect
-//                 </div>
-//                 <div onClick={handleLogout}>
-//                   Logout
-//                 </div>
-//               </div>
-//             )}
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* Bottom Navbar — completely unchanged */}
-//       <div className="navbar-container">
-//         {screens.map((item, index) => {
-//           if (index === 2) {
-//             return (
-//               <React.Fragment key={item.name}>
-//                 <div className="center-button" onClick={() => navigate('/service-form')}>
-//                   <FaPlus />
-//                 </div>
-//                 <button
-//                   className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-//                   onClick={() => handleIconClick(item.name)}
-//                 >
-//                   {item.icon}
-//                   <span>{item.label}</span>
-//                 </button>
-//               </React.Fragment>
-//             );
-//           }
-//           return (
-//             <button
-//               key={item.name}
-//               className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-//               onClick={() => handleIconClick(item.name)}
-//             >
-//               {item.icon}
-//               <span>{item.label}</span>
-//             </button>
-//           );
-//         })}
-//       </div>
-//     </>
-//   );
-// };
-
-// export default NavScreen;
-
-
-
-
-import React, { useState, useEffect, useRef, useContext } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  FaHome, FaCogs, FaEnvelope, FaPlus,
-  FaBell, FaUserCircle, FaUsers, FaInbox,
-  FaAngleLeft  // ← ADD THIS IMPORT
-} from 'react-icons/fa';
-import './Navbar.css';
-import logo from '../../../Logos/hvac-logo-new.jpg';
-import { AuthContext } from '../../AuthContext/AuthContext';
-import CustomerBell from './CustomerBell';
-import logo9 from "../../Screens/MachineScreensNew/Images/AIRO.png"
+  FaAngleLeft,
+  FaBell,
+  FaCogs,
+  FaHome,
+  FaInbox,
+  FaPlus,
+  FaUserCircle,
+  FaUsers,
+} from "react-icons/fa";
+import "./Navbar.css";
+import { AuthContext } from "../../AuthContext/AuthContext";
+import CustomerBell from "./CustomerBell";
+import logo from "../../../Logos/hvac-logo-new.jpg";
 
 const screens = [
-  { label: 'Dashboard', name: '/home',           icon: <FaHome /> },
-  { label: 'Machines',  name: '/machine',         icon: <FaCogs /> },
-  { label: 'Requests',  name: '/request',         icon: <FaUsers /> },
-  { label: 'Delegates', name: '/view-delegates',  icon: <FaInbox /> },
+  { label: "Dashboard", name: "/home", icon: <FaHome /> },
+  { label: "Machines", name: "/machine", icon: <FaCogs /> },
+  { label: "Requests", name: "/request", icon: <FaUsers /> },
+  { label: "Delegates", name: "/view-delegates", icon: <FaInbox /> },
 ];
 
 const NavScreen = () => {
-  const navigate   = useNavigate();
-  const location   = useLocation();
-  const [activeIcon, setActiveIcon]         = useState(location.pathname);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const profileRef = useRef();
+  const profileRef = useRef(null);
   const { logout, user } = useContext(AuthContext);
 
-  const handleLogout = () => {
-    setShowProfileMenu(false);
-    logout();
-    navigate("/");
-  };
-
-  const handleGoBack = () => {
-    navigate("/machinescreen1"); // Go back to previous page
-  };
+  useLayoutEffect(() => {
+    document.body.classList.add("customer-nav-active");
+    return () => document.body.classList.remove("customer-nav-active");
+  }, []);
 
   useEffect(() => {
-    setActiveIcon(location.pathname);
+    setShowProfileMenu(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -315,101 +44,106 @@ const NavScreen = () => {
         setShowProfileMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, []);
 
-  const handleIconClick = (path) => {
-    navigate(path);
+  const handleLogout = () => {
+    setShowProfileMenu(false);
+    logout();
+    navigate("/");
   };
 
   return (
     <>
-      {/* Top Navbar */}
-      <div className="top-navbar">
-        {/* Left Arrow - Back button */}
-        <div className="back-arrow"  style={{ cursor: "pointer" }}>
-          {/* <FaArrowLeft size={24} color="#fff" /> */}
-          <FaAngleLeft 
-  size={24} 
-  color="#fff" 
-  style={{ marginTop: "30px", cursor: "pointer" }} 
-  onClick={handleGoBack}
-/>
-        </div>
+      <header className="customer-top-navbar">
+        <button
+          type="button"
+          className="customer-nav-icon-button customer-nav-back"
+          aria-label="Back to machine controls"
+          onClick={() => navigate("/machinescreen1")}
+        >
+          <FaAngleLeft aria-hidden="true" />
+        </button>
 
-        {/* Logo in the middle */}
-        <img src={logo9} alt="Logo" className="logo-img" />
+        <img src={logo} alt="AIR₂O" className="customer-nav-logo" />
 
-        {/* Right side icons */}
-        <div className="top-icons">
-          <FaHome
-            className="top-icon"
+        <div className="customer-nav-actions">
+          <button
+            type="button"
+            className="customer-nav-icon-button customer-nav-home"
+            aria-label="Machine controls"
             onClick={() => navigate("/machinescreen1")}
-            style={{ cursor: "pointer" }}
-          />
+          >
+            <FaHome aria-hidden="true" />
+          </button>
 
-          {/* Customer Bell */}
-          {user?.customer_id
-            ? <CustomerBell />
-            : <FaBell className="top-icon" />
-          }
+          <div className="customer-nav-bell" aria-label="Notifications">
+            {user?.customer_id ? <CustomerBell /> : <FaBell aria-hidden="true" />}
+          </div>
 
-          {/* Profile Dropdown */}
-          <div className="profile-dropdown" ref={profileRef}>
-            <FaUserCircle
-              className="top-icon"
-              style={{ fontSize: '26px' }}
-              onClick={() => setShowProfileMenu((prev) => !prev)}
-            />
+          <div className="customer-profile" ref={profileRef}>
+            <button
+              type="button"
+              className="customer-nav-icon-button"
+              aria-label="Open profile menu"
+              aria-expanded={showProfileMenu}
+              onClick={() => setShowProfileMenu((open) => !open)}
+            >
+              <FaUserCircle aria-hidden="true" />
+            </button>
+
             {showProfileMenu && (
-              <div className="dropdown-menu" style={{ display: 'block', background: 'white' }}>
-                <div onClick={() => { setShowProfileMenu(false); navigate('/dashboard'); }}>
+              <div className="customer-profile-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => navigate("/dashboard")}>
                   Profile
-                </div>
-                <div onClick={() => { setShowProfileMenu(false); navigate('/connect'); }}>
+                </button>
+                <button type="button" role="menuitem" onClick={() => navigate("/connect")}>
                   Connect
-                </div>
-                <div onClick={handleLogout}>
+                </button>
+                <button type="button" role="menuitem" onClick={handleLogout}>
                   Logout
-                </div>
+                </button>
               </div>
             )}
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Bottom Navbar — completely unchanged */}
-      <div className="navbar-container">
-        {screens.map((item, index) => {
-          if (index === 2) {
-            return (
-              <React.Fragment key={item.name}>
-                <div className="center-button" onClick={() => navigate('/service-form')}>
-                  <FaPlus />
-                </div>
-                <button
-                  className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-                  onClick={() => handleIconClick(item.name)}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              </React.Fragment>
-            );
-          }
-          return (
-            <button
-              key={item.name}
-              className={`nav-item ${activeIcon === item.name ? 'active' : ''}`}
-              onClick={() => handleIconClick(item.name)}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      <nav className="customer-bottom-navbar" aria-label="Customer navigation">
+        {screens.slice(0, 2).map((item) => (
+          <button
+            type="button"
+            key={item.name}
+            className={`customer-bottom-nav-item ${location.pathname === item.name ? "is-active" : ""}`}
+            onClick={() => navigate(item.name)}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+
+        <button
+          type="button"
+          className="customer-add-request"
+          aria-label="Create service request"
+          onClick={() => navigate("/service-form")}
+        >
+          <FaPlus aria-hidden="true" />
+        </button>
+
+        {screens.slice(2).map((item) => (
+          <button
+            type="button"
+            key={item.name}
+            className={`customer-bottom-nav-item ${location.pathname === item.name ? "is-active" : ""}`}
+            onClick={() => navigate(item.name)}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </>
   );
 };

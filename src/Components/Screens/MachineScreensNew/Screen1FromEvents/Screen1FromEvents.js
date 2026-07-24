@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from "react";
-import "../Screen1.css";
 import AIROlogo from "../Images/AIRO.png";
 import greenAire from "../Images/greenAire.png";
 import { useNavigate } from "react-router-dom";

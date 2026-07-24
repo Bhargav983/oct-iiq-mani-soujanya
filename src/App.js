@@ -61,6 +61,8 @@ const DelegateComplaintsForm = lazy(() => import("./DelegateProfile/DelegateRequ
 const DelegateScreen2 = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateScreen2"));
 const DelegateAlarmsPage = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateAlarmPage"));
 const DelegateMachineAlert = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateMachineAlert"));
+const DelegateTimers = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateTimers"));
+const DelegateSettings = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateSettings"));
 
 function AppRouteLoading() {
   return (
@@ -190,6 +192,8 @@ function App() {
                     <Route path="/delegate-machinescreen2" element={<DelegateScreen2 />} />
                     <Route path="/delegate-alarms" element={<DelegateAlarmsPage />} />
                     <Route path="/delegate-Machine-request" element={<DelegateMachineAlert />} />
+                    <Route path="/delegate-timers" element={<DelegateTimers />} />
+                    <Route path="/delegate-settings" element={<DelegateSettings />} />
                     <Route path="/delegate-request" element={<DelegateRequestForm />} />
                     <Route path="/delegate-display-request" element={<RequestScreenDelegate />} />
                     <Route path="/delegate-survey" element={<DelegateSurveyForm />} />
