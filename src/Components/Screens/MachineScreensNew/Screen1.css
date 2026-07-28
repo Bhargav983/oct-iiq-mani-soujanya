@@ -612,7 +612,66 @@ border-top-right-radius: 50px; */
   margin-top: 5px;
   max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: #67b2eb #e7f3fc;
   box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.service-dropdown-list.is-scrollable {
+  padding-bottom: 34px;
+}
+
+.service-dropdown-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.service-dropdown-list::-webkit-scrollbar-track {
+  background: #e7f3fc;
+  border-radius: 0 10px 10px 0;
+}
+
+.service-dropdown-list::-webkit-scrollbar-thumb {
+  min-height: 34px;
+  background: #67b2eb;
+  border: 2px solid #e7f3fc;
+  border-radius: 999px;
+}
+
+.service-dropdown-list::-webkit-scrollbar-thumb:hover,
+.service-dropdown-list::-webkit-scrollbar-thumb:active {
+  background: #2f8ed8;
+}
+
+.service-scroll-hint {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 166px);
+  right: 8px;
+  left: 0;
+  min-height: 39px;
+  padding: 15px 10px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #176fae;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(225,243,255,0.97) 43%);
+  border-radius: 0 0 8px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.service-scroll-hint svg {
+  flex: 0 0 auto;
+  animation: service-scroll-cue 1.2s ease-in-out infinite;
+}
+
+@keyframes service-scroll-cue {
+  0%, 100% { transform: translateY(-1px); }
+  50% { transform: translateY(2px); }
 }
 
 .service-dropdown-item {
@@ -1779,6 +1838,14 @@ border-top-right-radius: 50px; */
   background-color: #ddf3e5;
 }
 
+.service-dropdown-item.error {
+  background-color: #fdecec;
+}
+
+.service-dropdown-item.error:hover {
+  background-color: #f9dddd;
+}
+
 .service-online-status {
   display: inline-flex;
   align-items: center;
@@ -1790,6 +1857,14 @@ border-top-right-radius: 50px; */
 
 .service-online-status.online {
   color: #16833f;
+}
+
+.service-online-status.error {
+  color: #c62828;
+}
+
+.service-online-status.error .service-online-dot {
+  box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.14);
 }
 
 .service-online-status.offline,

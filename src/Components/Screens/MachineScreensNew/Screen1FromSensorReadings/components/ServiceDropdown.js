@@ -1,6 +1,26 @@
-import React from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { FiChevronDown } from "react-icons/fi";
-import { getAlarmCountForItem, getOnlineStatusForItem } from "../utils";
+import {
+  getAlarmCountForItem,
+  getLiveAlarmTotal,
+  getMachineStatusForItem,
+} from "../utils";
+
+const STATUS_LABELS = {
+  error: "Error",
+  online: "Online",
+  offline: "Offline",
+  checking: "Checking",
+};
+
+export const getDropdownScrollState = (element) => {
+  if (!element) return { isScrollable: false, hasMoreBelow: false };
+  const overflow = element.scrollHeight - element.clientHeight;
+  return {
+    isScrollable: overflow > 2,
+    hasMoreBelow: overflow - element.scrollTop > 2,
+  };
+};
 
 const AlarmBadge = ({ count, compact = false }) => {
   if (count <= 0) return null;
@@ -32,82 +52,118 @@ const ServiceDropdown = ({
   services,
   selectedService,
   allDevicesData,
-  totalAlarmCount,
   onSelect,
-}) => (
-  <div className="service-dropdown-wrapper">
-    <div className="service-dropdown-container">
-      <div
-        className="service-dropdown-header"
-        onClick={onToggle}
-        style={{ position: "relative" }}
-      >
-        <span>
-          {selectedService ? selectedService.service_item_name : "Select Service"}
-        </span>
-        <AlarmBadge count={totalAlarmCount} compact />
-        <FiChevronDown size={18} />
-      </div>
+}) => {
+  const listRef = useRef(null);
+  const [scrollState, setScrollState] = useState({
+    isScrollable: false,
+    hasMoreBelow: false,
+  });
+  const liveAlarmCount = getLiveAlarmTotal(services, allDevicesData);
 
-      {isOpen && (
-        <div className="service-dropdown-list">
-          {services.map((item) => {
-            const alarmCount = getAlarmCountForItem(item, allDevicesData);
-            const isOnline = getOnlineStatusForItem(item, allDevicesData);
-            const isSelected =
-              selectedService?.service_item_id === item.service_item_id;
+  const updateScrollState = useCallback(() => {
+    setScrollState(getDropdownScrollState(listRef.current));
+  }, []);
 
-            return (
-              <div
-                key={item.service_item_id}
-                className={`service-dropdown-item ${isSelected ? "active" : ""} ${
-                  isOnline === true ? "online" : ""
-                }`}
-                onClick={() => onSelect(item)}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <span>{item.service_item_name}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span
-                    className={`service-online-status ${
-                      isOnline === true
-                        ? "online"
-                        : isOnline === false
-                        ? "offline"
-                        : "checking"
-                    }`}
-                    aria-label={
-                      isOnline === true
-                        ? "Online"
-                        : isOnline === false
-                        ? "Offline"
-                        : "Checking status"
-                    }
-                  >
-                    <span className="service-online-dot" />
-                    {isOnline === true
-                      ? "Online"
-                      : isOnline === false
-                      ? "Offline"
-                      : "Checking"}
-                  </span>
-                  {item.permissions?.can_control_equipment === false && (
-                    <span className="service-permission-badge">View only</span>
-                  )}
-                  {isSelected && <span style={{ color: "#3E99ED" }}>✓</span>}
-                  <AlarmBadge count={alarmCount} />
-                </div>
-              </div>
-            );
-          })}
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setScrollState({ isScrollable: false, hasMoreBelow: false });
+      return undefined;
+    }
+
+    updateScrollState();
+    window.addEventListener("resize", updateScrollState);
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateScrollState)
+        : null;
+    if (observer && listRef.current) observer.observe(listRef.current);
+
+    return () => {
+      window.removeEventListener("resize", updateScrollState);
+      observer?.disconnect();
+    };
+  }, [isOpen, services.length, updateScrollState]);
+
+  return (
+    <div className="service-dropdown-wrapper" data-pull-refresh-ignore="true">
+      <div className="service-dropdown-container">
+        <div
+          className="service-dropdown-header"
+          onClick={onToggle}
+          style={{ position: "relative" }}
+        >
+          <span>
+            {selectedService ? selectedService.service_item_name : "Select Service"}
+          </span>
+          <AlarmBadge count={liveAlarmCount} compact />
+          <FiChevronDown size={18} />
         </div>
-      )}
+
+        {isOpen && (
+          <>
+            <div
+              ref={listRef}
+              className={`service-dropdown-list ${
+                scrollState.isScrollable ? "is-scrollable" : ""
+              }`}
+              onScroll={updateScrollState}
+              data-testid="service-dropdown-list"
+            >
+              {services.map((item) => {
+                const alarmCount = getAlarmCountForItem(item, allDevicesData);
+                const machineStatus = getMachineStatusForItem(item, allDevicesData);
+                const isSelected =
+                  selectedService?.service_item_id === item.service_item_id;
+
+                return (
+                  <div
+                    key={item.service_item_id}
+                    className={`service-dropdown-item ${
+                      isSelected ? "active" : ""
+                    } ${machineStatus}`}
+                    onClick={() => onSelect(item)}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span>{item.service_item_name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span
+                        className={`service-online-status ${machineStatus}`}
+                        aria-label={
+                          machineStatus === "checking"
+                            ? "Checking status"
+                            : STATUS_LABELS[machineStatus]
+                        }
+                      >
+                        <span className="service-online-dot" />
+                        {STATUS_LABELS[machineStatus]}
+                      </span>
+                      {item.permissions?.can_control_equipment === false && (
+                        <span className="service-permission-badge">View only</span>
+                      )}
+                      {isSelected && <span style={{ color: "#3E99ED" }}>✓</span>}
+                      <AlarmBadge count={alarmCount} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {scrollState.isScrollable && scrollState.hasMoreBelow && (
+              <div className="service-scroll-hint" role="status" aria-live="polite">
+                <span>Scroll for more machines</span>
+                <FiChevronDown aria-hidden="true" />
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default ServiceDropdown;

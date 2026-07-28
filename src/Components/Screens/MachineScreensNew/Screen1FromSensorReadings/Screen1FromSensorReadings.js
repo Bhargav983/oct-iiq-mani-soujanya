@@ -24,6 +24,10 @@ import {
   SWITCHING_MESSAGES,
 } from "./constants";
 import { sendRefreshCommand } from "./controllerApi";
+import {
+  canStartPullRefresh,
+  getPullGesture,
+} from "./pullToRefreshGesture";
 import { getStoredService, selectDeviceData } from "./utils";
 
 const Screen1FromSensorReadings = () => {
@@ -42,6 +46,8 @@ const Screen1FromSensorReadings = () => {
   });
 
   const touchStartY = useRef(0);
+  const touchStartX = useRef(0);
+  const pullGestureEligible = useRef(false);
   const isFetchingRef = useRef(false);
 const hasStoppedRef = useRef(false); // prevents clearProcessingIfDone from firing stopProcessing more than once per cycle
   const containerRef = useRef(null);
@@ -622,61 +628,146 @@ const clearProcessingIfDone = () => {
 
  
 
+  const resetPullGesture = () => {
+    setPullToRefresh((current) => ({
+      isPulling: false,
+      pullDistance: 0,
+      isRefreshing: current.isRefreshing,
+    }));
+  };
+
   const handleTouchStart = (e) => {
-  if (e.target.closest && e.target.closest(".temp-container")) return;
-  touchStartY.current = e.touches[0].clientY;
-};
+    const point = e.touches[0];
+    const eligible = canStartPullRefresh({
+      target: e.target,
+      pageScrollTop: containerRef.current?.scrollTop || 0,
+      isRefreshing: pullToRefresh.isRefreshing,
+    });
+
+    pullGestureEligible.current = eligible;
+    touchStartX.current = point.clientX;
+    touchStartY.current = point.clientY;
+    if (!eligible) resetPullGesture();
+  };
 
   const handleTouchMove = (e) => {
-  if (e.target.closest && e.target.closest(".temp-container")) return;
-  if (containerRef.current && containerRef.current.scrollTop > 0) return;
-  const pullDistance = e.touches[0].clientY - touchStartY.current;
-  if (pullDistance > 0) {
+    if (!pullGestureEligible.current) return;
+    if (containerRef.current && containerRef.current.scrollTop > 0) {
+      pullGestureEligible.current = false;
+      resetPullGesture();
+      return;
+    }
+
+    const point = e.touches[0];
+    const gesture = getPullGesture(
+      touchStartX.current,
+      touchStartY.current,
+      point.clientX,
+      point.clientY
+    );
+    if (!gesture.isDownwardVertical) {
+      if (
+        gesture.deltaY < 0 ||
+        Math.abs(gesture.deltaX) > Math.abs(gesture.deltaY)
+      ) {
+        pullGestureEligible.current = false;
+      }
+      resetPullGesture();
+      return;
+    }
+
     e.preventDefault();
-    setPullToRefresh({ isPulling: true, pullDistance: Math.min(pullDistance, MAX_PULL), isRefreshing: false });
-  }
-};
+    setPullToRefresh({
+      isPulling: true,
+      pullDistance: Math.min(gesture.deltaY, MAX_PULL),
+      isRefreshing: false,
+    });
+  };
 
-const handleTouchEnd = async () => {
-  if (pullToRefresh.pullDistance >= PULL_THRESHOLD && !pullToRefresh.isRefreshing) {
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: true });
-    await sendRefreshToController();
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false }); // ⬅ reset after completion
-    setManualRefresh(true);
-  } else {
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false });
-  }
-};
- 
-
-  const handleMouseDown = (e) => {
-  if (e.target.closest && e.target.closest(".temp-container")) return;
-  touchStartY.current = e.clientY;
-  document.addEventListener("mousemove", handleMouseMove);
-  document.addEventListener("mouseup", handleMouseUp);
-};
-  const handleMouseMove = (e) => {
-    if (containerRef.current && containerRef.current.scrollTop > 0) return;
-    const pullDistance = e.clientY - touchStartY.current;
-    if (pullDistance > 0) {
-      e.preventDefault();
-      setPullToRefresh({ isPulling: true, pullDistance: Math.min(pullDistance, MAX_PULL), isRefreshing: false });
+  const handleTouchEnd = async () => {
+    const eligible = pullGestureEligible.current;
+    pullGestureEligible.current = false;
+    if (
+      eligible &&
+      pullToRefresh.pullDistance >= PULL_THRESHOLD &&
+      !pullToRefresh.isRefreshing
+    ) {
+      setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: true });
+      await sendRefreshToController();
+      setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false });
+      setManualRefresh(true);
+    } else {
+      resetPullGesture();
     }
   };
 
+  const handleTouchCancel = () => {
+    pullGestureEligible.current = false;
+    resetPullGesture();
+  };
+
+  const handleMouseDown = (e) => {
+    const eligible = canStartPullRefresh({
+      target: e.target,
+      pageScrollTop: containerRef.current?.scrollTop || 0,
+      isRefreshing: pullToRefresh.isRefreshing,
+    });
+    pullGestureEligible.current = eligible;
+    touchStartX.current = e.clientX;
+    touchStartY.current = e.clientY;
+    if (!eligible) {
+      resetPullGesture();
+      return;
+    }
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!pullGestureEligible.current) return;
+    if (containerRef.current && containerRef.current.scrollTop > 0) {
+      pullGestureEligible.current = false;
+      resetPullGesture();
+      return;
+    }
+
+    const gesture = getPullGesture(
+      touchStartX.current,
+      touchStartY.current,
+      e.clientX,
+      e.clientY
+    );
+    if (!gesture.isDownwardVertical) {
+      resetPullGesture();
+      return;
+    }
+
+    e.preventDefault();
+    setPullToRefresh({
+      isPulling: true,
+      pullDistance: Math.min(gesture.deltaY, MAX_PULL),
+      isRefreshing: false,
+    });
+  };
 
   const handleMouseUp = async () => {
-  document.removeEventListener("mousemove", handleMouseMove);
-  document.removeEventListener("mouseup", handleMouseUp);
-  if (pullToRefresh.pullDistance >= PULL_THRESHOLD && !pullToRefresh.isRefreshing) {
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: true });
-    await sendRefreshToController();
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false }); // ⬅ reset after completion
-    setManualRefresh(true);
-  } else {
-    setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false });
-  }
-};
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+    const eligible = pullGestureEligible.current;
+    pullGestureEligible.current = false;
+    if (
+      eligible &&
+      pullToRefresh.pullDistance >= PULL_THRESHOLD &&
+      !pullToRefresh.isRefreshing
+    ) {
+      setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: true });
+      await sendRefreshToController();
+      setPullToRefresh({ isPulling: false, pullDistance: 0, isRefreshing: false });
+      setManualRefresh(true);
+    } else {
+      resetPullGesture();
+    }
+  };
   const handleLogout = () => {
     logout();
     navigate("/");
@@ -897,6 +988,7 @@ const handleTouchEnd = async () => {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       onMouseDown={handleMouseDown}
     >
       <PullToRefreshStatus
