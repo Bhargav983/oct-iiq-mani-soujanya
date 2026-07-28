@@ -8300,30 +8300,33 @@ const DelegateScreen1 = () => {
                   {selectedService ? selectedService.service_item_name : "Select Service"}
                 </span>
 
-                {/* Global Alarm Badge - shows total count */}
-                {dropdownAlarmCount > 0 && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: "0px",
-                      right: "28px",
-                      backgroundColor: "red",
-                      color: "white",
-                      borderRadius: "50%",
-                      width: "18px",
-                      height: "18px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "10px",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {dropdownAlarmCount}
-                  </span>
-                )}
-
-                <FiChevronDown size={18} />
+                <span className="service-dropdown-actions">
+                  {dropdownAlarmCount > 0 && (
+                    <span
+                      className="service-alarm-badge total"
+                      aria-label={`${dropdownAlarmCount} total live ${dropdownAlarmCount === 1 ? "error" : "errors"}`}
+                      title={`${dropdownAlarmCount} total live ${dropdownAlarmCount === 1 ? "error" : "errors"}`}
+                      style={{
+                        backgroundColor: "red",
+                        color: "white",
+                        borderRadius: "50%",
+                        minWidth: "18px",
+                        width: "auto",
+                        height: "18px",
+                        padding: "0 4px",
+                        boxSizing: "border-box",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "10px",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {dropdownAlarmCount > 99 ? "99+" : dropdownAlarmCount}
+                    </span>
+                  )}
+                  <FiChevronDown size={18} aria-hidden="true" />
+                </span>
               </div>
               {showServiceDropdown && (
                 <div className="service-dropdown-list">

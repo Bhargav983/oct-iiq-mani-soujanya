@@ -1971,3 +1971,38 @@ border-top-right-radius: 50px; */
   font-weight: 700;
   white-space: nowrap;
 }
+
+/* The total live-error badge straddles the dropdown top edge above the arrow. */
+.service-dropdown-header {
+  overflow: visible;
+}
+
+.service-dropdown-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  overflow: visible !important;
+}
+
+.service-dropdown-header .service-alarm-badge {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1;
+}
+
+.service-dropdown-header .service-alarm-badge.total {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 3;
+  min-width: 18px;
+  width: auto !important;
+  padding: 0 4px;
+  box-sizing: border-box;
+  transform: translate(-50%, -100%);
+}

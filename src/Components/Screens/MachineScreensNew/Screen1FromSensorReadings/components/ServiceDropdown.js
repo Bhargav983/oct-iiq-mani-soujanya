@@ -22,10 +22,15 @@ export const getDropdownScrollState = (element) => {
   };
 };
 
-const AlarmBadge = ({ count, compact = false }) => {
+export const formatAlarmCount = (count) => (count > 99 ? "99+" : String(count));
+
+const AlarmBadge = ({ count, compact = false, label }) => {
   if (count <= 0) return null;
   return (
     <span
+      className={`service-alarm-badge ${compact ? "total" : "unit"}`}
+      aria-label={label}
+      title={label}
       style={{
         backgroundColor: "red",
         color: "white",
@@ -38,10 +43,9 @@ const AlarmBadge = ({ count, compact = false }) => {
         fontSize: "10px",
         fontWeight: "bold",
         minWidth: compact ? undefined : "20px",
-        ...(compact ? { position: "absolute", top: "0px", right: "28px" } : {}),
       }}
     >
-      {count}
+      {formatAlarmCount(count)}
     </span>
   );
 };
@@ -96,8 +100,14 @@ const ServiceDropdown = ({
           <span>
             {selectedService ? selectedService.service_item_name : "Select Service"}
           </span>
-          <AlarmBadge count={liveAlarmCount} compact />
-          <FiChevronDown size={18} />
+          <span className="service-dropdown-actions" aria-hidden="false">
+            <AlarmBadge
+              count={liveAlarmCount}
+              compact
+              label={`${liveAlarmCount} total live ${liveAlarmCount === 1 ? "error" : "errors"}`}
+            />
+            <FiChevronDown size={18} aria-hidden="true" />
+          </span>
         </div>
 
         {isOpen && (
@@ -146,7 +156,10 @@ const ServiceDropdown = ({
                         <span className="service-permission-badge">View only</span>
                       )}
                       {isSelected && <span style={{ color: "#3E99ED" }}>✓</span>}
-                      <AlarmBadge count={alarmCount} />
+                      <AlarmBadge
+                        count={alarmCount}
+                        label={`${alarmCount} live ${alarmCount === 1 ? "error" : "errors"} for ${item.service_item_name}`}
+                      />
                     </div>
                   </div>
                 );
