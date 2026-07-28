@@ -126,14 +126,14 @@ const DelegateNavbar = () => {
           <img src={logo} alt="AIR₂O" className="delegate-nav-logo" />
 
           <div className="delegate-nav-actions">
-            <button
+            {/* <button
               type="button"
               className="delegate-nav-icon-button"
               aria-label="Delegate notifications"
               onClick={() => alert("Notifications Clicked!")}
             >
               <FaBell aria-hidden="true" />
-            </button>
+            </button> */}
 
             <div className="delegate-profile" ref={profileRef}>
               <button
