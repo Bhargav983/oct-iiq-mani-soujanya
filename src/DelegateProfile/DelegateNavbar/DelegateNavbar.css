@@ -1,8 +1,14 @@
 :root {
-  --delegate-nav-top-height: 112px;
+  --delegate-nav-top-height: 62px;
   --delegate-nav-bottom-height: 68px;
-  --delegate-safe-top: env(safe-area-inset-top, 0px);
+  --delegate-safe-top: max(env(safe-area-inset-top, 0px), var(--airo-native-safe-top, 0px));
+  --delegate-safe-left: env(safe-area-inset-left, 0px);
+  --delegate-safe-right: env(safe-area-inset-right, 0px);
   --delegate-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body.delegate-nav-with-selector {
+  --delegate-nav-top-height: 112px;
 }
 
 body.delegate-nav-active .App {
@@ -28,12 +34,17 @@ body.delegate-nav-active .App {
   height: calc(var(--delegate-nav-top-height) + var(--delegate-safe-top));
   padding: var(--delegate-safe-top) 10px 8px;
   display: grid;
-  grid-template-rows: 54px 42px;
-  gap: 6px;
+  grid-template-rows: 54px;
+  gap: 0;
   color: #fff;
   background: linear-gradient(135deg, #3199ed, #237acb);
   border-bottom: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: 0 3px 15px rgba(18, 69, 116, 0.2);
+}
+
+.delegate-top-navbar.has-service-selector {
+  grid-template-rows: 54px 42px;
+  gap: 6px;
 }
 
 .delegate-top-row {
@@ -232,10 +243,6 @@ body.delegate-nav-active .App {
     padding-left: 7px;
   }
 
-  .delegate-top-row {
-    grid-template-columns: 40px minmax(68px, 1fr) auto;
-    gap: 2px;
-  }
 
   .delegate-nav-logo {
     max-width: 88px;
@@ -267,16 +274,64 @@ body.delegate-nav-active .App {
 
 @media (orientation: landscape) and (max-height: 500px) {
   :root {
-    --delegate-nav-top-height: 98px;
+    --delegate-nav-top-height: 54px;
     --delegate-nav-bottom-height: 58px;
   }
 
+  body.delegate-nav-with-selector {
+    --delegate-nav-top-height: 98px;
+  }
+
   .delegate-top-navbar {
-    grid-template-rows: 48px 36px;
+    grid-template-rows: 48px;
     padding-bottom: 6px;
+  }
+
+  .delegate-top-navbar.has-service-selector {
+    grid-template-rows: 48px 36px;
+    gap: 6px;
   }
 
   .delegate-service-selector select {
     height: 36px;
+  }
+}
+/* Mobile-safe top row: the AIR₂O logo is centered independently of side actions. */
+.delegate-top-navbar {
+  padding-right: max(10px, var(--delegate-safe-right));
+  padding-left: max(10px, var(--delegate-safe-left));
+}
+
+.delegate-top-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.delegate-nav-back,
+.delegate-nav-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.delegate-nav-actions {
+  margin-left: auto;
+}
+
+.delegate-nav-logo {
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .delegate-top-navbar {
+    padding-right: max(7px, var(--delegate-safe-right));
+    padding-left: max(7px, var(--delegate-safe-left));
   }
 }

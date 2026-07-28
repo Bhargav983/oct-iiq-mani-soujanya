@@ -320,7 +320,9 @@ const isControlDisabled = () => {
     return () => {
       cancelled = true;
     };
-  }, [assignmentsLoading, assignmentError, normalizedServiceItems, selectedServiceItem, initializationRun, updateSelectedServiceItem]);
+  // Unit selection is handled by confirmServiceSwitch. It must not restart delegate access initialization.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignmentsLoading, assignmentError, normalizedServiceItems, initializationRun]);
   // Foreground event refresh for the active PCB.
   const fetchData = async () => {
     const pcbSerialNumber = activePCBRef.current;
@@ -364,8 +366,45 @@ const isControlDisabled = () => {
       isFetchingRef.current = false;
     }
   };
+  const fetchAllAlarms = useCallback(async () => {
+    try {
+      const devices = await fetchAllDevicesSegregatedData(serviceItems);
+      setAllDevicesData(devices);
+      setDropdownAlarmCount(
+        devices.reduce(
+          (count, item) =>
+            count +
+            (item.is_online
+              ? Number(item.alarm_occurred?.value || 0)
+              : 0),
+          0
+        )
+      );
+    } catch (error) {
+      console.error("Event alarm summary failed:", error);
+    }
+  }, [serviceItems]);
+  // Poll only the selected PCB. Changing units restarts this timer but must not abort
+  // the new switch request created by confirmServiceSwitch.
   useEffect(() => {
-    if (!initialDataLoaded || !activePCBRef.current) return;
+    if (!initialDataLoaded || !activePCBRef.current) return undefined;
+
+    if (fetchIntervalRef.current) clearInterval(fetchIntervalRef.current);
+    fetchIntervalRef.current = setInterval(() => {
+      if (!processingRef.current && document.visibilityState === "visible") {
+        fetchData();
+      }
+    }, 10000);
+
+    return () => {
+      if (fetchIntervalRef.current) clearInterval(fetchIntervalRef.current);
+      fetchIntervalRef.current = null;
+    };
+  }, [initialDataLoaded, selectedService?.pcb_serial_number]);
+
+  // Warm and refresh all assigned-machine snapshots independently of unit selection.
+  useEffect(() => {
+    if (!initialDataLoaded || serviceItems.length === 0) return undefined;
 
     initialAlarmTimerRef.current = setTimeout(() => {
       if (!processingRef.current && document.visibilityState === "visible") {
@@ -373,15 +412,7 @@ const isControlDisabled = () => {
       }
     }, 500);
 
-    if (fetchIntervalRef.current) clearInterval(fetchIntervalRef.current);
     if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
-
-    fetchIntervalRef.current = setInterval(() => {
-      if (!processingRef.current && document.visibilityState === "visible") {
-        fetchData();
-      }
-    }, 10000);
-
     alarmIntervalRef.current = setInterval(() => {
       if (!processingRef.current && document.visibilityState === "visible") {
         fetchAllAlarms();
@@ -389,27 +420,22 @@ const isControlDisabled = () => {
     }, 61000);
 
     return () => {
-      if (fetchIntervalRef.current) clearInterval(fetchIntervalRef.current);
       if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
       if (initialAlarmTimerRef.current) clearTimeout(initialAlarmTimerRef.current);
-      if (eventAbortRef.current) eventAbortRef.current.abort();
-      fetchIntervalRef.current = null;
       alarmIntervalRef.current = null;
       initialAlarmTimerRef.current = null;
     };
-  }, [initialDataLoaded, selectedService?.pcb_serial_number]);
+  }, [initialDataLoaded, serviceItems.length, fetchAllAlarms]);
 
-const fetchAllAlarms = async () => {
-  try {
-    const devices = await fetchAllDevicesSegregatedData(serviceItems);
-    setAllDevicesData(devices);
-    setDropdownAlarmCount(
-      devices.reduce((count, item) => count + Number(item.alarm_occurred?.value || 0), 0)
-    );
-  } catch (error) {
-    console.error("Event alarm summary failed:", error);
-  }
-};
+  // Abort the current device request only when leaving this screen.
+  useEffect(
+    () => () => {
+      if (eventAbortRef.current) eventAbortRef.current.abort();
+    },
+    []
+  );
+
+
   // Send temperature command to device
   const sendTemperatureCommand = async (temperature) => {
     if (!serviceItemPermissions.can_control_equipment) return;

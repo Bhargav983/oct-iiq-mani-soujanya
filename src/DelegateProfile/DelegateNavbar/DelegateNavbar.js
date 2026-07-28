@@ -2,7 +2,6 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   FaAngleLeft,
-  FaBell,
   FaCogs,
   FaCommentDots,
   FaEnvelope,
@@ -15,6 +14,7 @@ import logo from "../../Logos/hvac-logo-new.jpg";
 import { useDelegateServiceItems } from "../../Components/AuthContext/DelegateServiceItemContext";
 import { AuthContext } from "../../Components/AuthContext/AuthContext";
 import baseURL from "../../Components/ApiUrl/Apiurl";
+import { shouldShowDelegateServiceSelector } from "./delegateNavbarRoutes";
 
 const screens = [
   { label: "Dashboard", name: "/delegate-home", icon: <FaHome />, key: "dashboard" },
@@ -26,6 +26,7 @@ const screens = [
 const DelegateNavbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const showServiceSelector = shouldShowDelegateServiceSelector(location.pathname);
   const profileRef = useRef(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [serviceItemsList, setServiceItemsList] = useState([]);
@@ -40,8 +41,12 @@ const DelegateNavbar = () => {
 
   useLayoutEffect(() => {
     document.body.classList.add("delegate-nav-active");
-    return () => document.body.classList.remove("delegate-nav-active");
-  }, []);
+    document.body.classList.toggle("delegate-nav-with-selector", showServiceSelector);
+    return () => {
+      document.body.classList.remove("delegate-nav-active");
+      document.body.classList.remove("delegate-nav-with-selector");
+    };
+  }, [showServiceSelector]);
 
   useEffect(() => {
     setShowProfileMenu(false);
@@ -59,7 +64,9 @@ const DelegateNavbar = () => {
 
   useEffect(() => {
     let cancelled = false;
-    if (!user?.company_id || !user?.delegate_id) return undefined;
+    if (!showServiceSelector || !user?.company_id || !user?.delegate_id) {
+      return undefined;
+    }
 
     axios
       .get(`${baseURL}/service-items/?user_id=${user.delegate_id}&company_id=${user.company_id}`)
@@ -82,7 +89,7 @@ const DelegateNavbar = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.company_id, user?.delegate_id]);
+  }, [showServiceSelector, user?.company_id, user?.delegate_id]);
 
   const getServiceItemName = (serviceItemId) => {
     const apiItem = serviceItemsList.find((item) => item.service_item_id === serviceItemId);
@@ -112,7 +119,9 @@ const DelegateNavbar = () => {
 
   return (
     <>
-      <header className="delegate-top-navbar">
+      <header
+        className={`delegate-top-navbar ${showServiceSelector ? "has-service-selector" : ""}`}
+      >
         <div className="delegate-top-row">
           <button
             type="button"
@@ -164,9 +173,10 @@ const DelegateNavbar = () => {
           </div>
         </div>
 
-        <div className="delegate-service-selector">
-          <label htmlFor="delegate-service-item">Assigned service item</label>
-          <select
+        {showServiceSelector && (
+          <div className="delegate-service-selector">
+            <label htmlFor="delegate-service-item">Assigned service item</label>
+            <select
             id="delegate-service-item"
             value={selectedServiceItem || ""}
             onChange={(event) => updateSelectedServiceItem(event.target.value)}
@@ -180,8 +190,9 @@ const DelegateNavbar = () => {
                 {getServiceItemName(item.service_item)}
               </option>
             ))}
-          </select>
-        </div>
+            </select>
+          </div>
+        )}
       </header>
 
       <nav className="delegate-bottom-navbar" aria-label="Delegate navigation">

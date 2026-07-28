@@ -1,7 +1,9 @@
 :root {
   --customer-nav-top-height: 60px;
   --customer-nav-bottom-height: 68px;
-  --customer-safe-top: env(safe-area-inset-top, 0px);
+  --customer-safe-top: max(env(safe-area-inset-top, 0px), var(--airo-native-safe-top, 0px));
+  --customer-safe-left: env(safe-area-inset-left, 0px);
+  --customer-safe-right: env(safe-area-inset-right, 0px);
   --customer-safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -274,4 +276,42 @@ body.customer-nav-active .App {
 .machine-placeholder-content {
   min-height: calc(100dvh - var(--customer-nav-top-height) - var(--customer-nav-bottom-height) - var(--customer-safe-top) - var(--customer-safe-bottom));
   padding: 16px;
+}
+
+/* Mobile-safe top bar: actions stay at the edges while the logo stays viewport-centered. */
+.customer-top-navbar {
+  display: flex;
+  align-items: center;
+  padding-top: var(--customer-safe-top);
+  padding-right: max(10px, var(--customer-safe-right));
+  padding-bottom: 0;
+  padding-left: max(10px, var(--customer-safe-left));
+}
+
+.customer-nav-back,
+.customer-nav-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.customer-nav-actions {
+  margin-left: auto;
+}
+
+.customer-nav-logo {
+  position: absolute;
+  z-index: 0;
+  top: var(--customer-safe-top);
+  bottom: 0;
+  left: 50%;
+  margin: auto 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .customer-top-navbar {
+    padding-right: max(6px, var(--customer-safe-right));
+    padding-left: max(6px, var(--customer-safe-left));
+  }
 }

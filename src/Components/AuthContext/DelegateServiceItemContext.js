@@ -103,7 +103,8 @@ export const DelegateServiceItemProvider = ({ children }) => {
     return () => {
       cancelled = true;
     };
-  }, [user, refreshRun]);
+  // Assignment access belongs to the signed-in delegate/company, not the user object's identity.
+  }, [user?.delegate_id, user?.company_id, refreshRun]);
 
   const updateSelectedServiceItem = useCallback(
     (serviceItemId) => {

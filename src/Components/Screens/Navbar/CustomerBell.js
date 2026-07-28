@@ -77,7 +77,7 @@ const CustomerBell = () => {
 
           <div style={{
             position:     'fixed',
-            top:          'calc(env(safe-area-inset-top, 0px) + 56px)',
+            top:          'calc(var(--customer-safe-top, 0px) + 56px)',
             right:        '12px',
             width:        'min(340px, calc(100vw - 24px))',
             background:   '#fff',
