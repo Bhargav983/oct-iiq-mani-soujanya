@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useContext, useEffect } from "react";
-import { BrowserRouter as Router, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, useNavigate, useLocation } from "react-router-dom";
 import Login from "./Components/LoginSreens/Login";
 import Screen1 from "./Components/Screens/MachineScreensNew/Screen1";
 import DelegateScreen1 from "./DelegateProfile/DelegateMachineScreen/DelegateScreen1";
@@ -50,7 +50,8 @@ const MachineLayout = lazy(() => import("./Components/Screens/MachineScreensNew/
 const WifiInstructionsScreen = lazy(() => import("./Components/Screens/WifiInstructionsScreen"));
 const StaticScreen = lazy(() => import("./Components/Screens/StaticScreen"));
 const WifiScreen = lazy(() => import("./Components/Screens/WifiScreen"));
-
+const ChatBot = lazy(() => import("./Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/Chatbot"));
+const DelegateChatbot = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateChatbot"));
 const DelegateHome = lazy(() => import("./DelegateProfile/DelegateHome/DelegateHome"));
 const DelegateRequestForm = lazy(() => import("./DelegateProfile/DelegateRequest/DelegateRequestForm"));
 const DelegateSurveyForm = lazy(() => import("./DelegateProfile/DelegateSurvey/DelegateSurveyForm"));
@@ -108,6 +109,20 @@ function CustomerRoutes() {
   return <MachineLayout />;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
+  }, [pathname]);
+
+  return null;
+}
+
 function AppWrapper() {
   const navigate = useNavigate();
 
@@ -132,6 +147,7 @@ function App() {
             autoHideDuration={4000}
           >
             <Router>
+            <ScrollToTop /> 
               <div className="App">
                 <ToastContainer
                   position="top-right"
@@ -150,6 +166,7 @@ function App() {
                       <Route path="/machinescreen2" element={<Screen2 />} />
                       <Route path="/alarms" element={<AlarmsPage />} />
                       <Route path="/timers" element={<Timers />} />
+                      <Route path="/chat-bot" element={<ChatBot />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/machine-service-request-form" element={<MachineRequestForm />} />
                       <Route path="/machine" element={<MachineScreen />} />
@@ -193,6 +210,7 @@ function App() {
                     <Route path="/delegate-alarms" element={<DelegateAlarmsPage />} />
                     <Route path="/delegate-Machine-request" element={<DelegateMachineAlert />} />
                     <Route path="/delegate-timers" element={<DelegateTimers />} />
+                     <Route path="/delegate-chatbot" element={<DelegateChatbot />} />
                     <Route path="/delegate-settings" element={<DelegateSettings />} />
                     <Route path="/delegate-request" element={<DelegateRequestForm />} />
                     <Route path="/delegate-display-request" element={<RequestScreenDelegate />} />

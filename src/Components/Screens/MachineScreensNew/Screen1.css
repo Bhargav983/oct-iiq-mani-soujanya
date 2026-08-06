@@ -409,7 +409,7 @@ border-top-right-radius: 50px; */
 .footer-container {
   /* position: fixed; */
    position: relative;
-    height: auto;
+    height: 58vh;
   bottom: 0;
   width: 100%;
   /* max-width: 450px;  */
@@ -535,7 +535,7 @@ border-top-right-radius: 50px; */
 .footer-container {
         /* position: fixed; */
          position: relative;
-    height: auto;
+    height: 60vh;
         bottom: 0;
         width: 100%;
         /* max-width: 450px; */
@@ -1060,7 +1060,7 @@ border-top-right-radius: 50px; */
         padding: 15px 0 10px;
         /* height: 225px; */
          position: relative;
-    height: auto;
+    height: 60vh;
     }
 
     .control-buttons {

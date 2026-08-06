@@ -186,7 +186,7 @@
 
 @media (max-width: 768px) {
     .delegate-card-container {
-        padding: 80px 2px;
+        /* padding: 80px 2px; */
         max-width: 1200px;
         margin: 15px auto;
     }

@@ -12,9 +12,10 @@ body.delegate-nav-with-selector {
 }
 
 body.delegate-nav-active .App {
-  min-height: 100dvh;
-  padding-top: calc(var(--delegate-nav-top-height) + var(--delegate-safe-top));
-  padding-bottom: calc(var(--delegate-nav-bottom-height) + var(--delegate-safe-bottom));
+  min-height: 100vh;
+  padding: 9px;
+  padding-top: 22%;
+  padding-bottom: 20%;
   box-sizing: border-box;
 }
 

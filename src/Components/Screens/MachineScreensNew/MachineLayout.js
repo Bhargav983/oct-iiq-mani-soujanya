@@ -15,6 +15,7 @@ const MachineLayout = () => {
     "/machine",
     "/home",
     "/request",
+    "/chat-bot",
     "/view-delegates",
     "/service-form",
   ];

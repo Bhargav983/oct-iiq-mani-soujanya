@@ -59,7 +59,7 @@ const Screen1FromEvents = () => {
   const [pendingTemperature, setPendingTemperature] = useState(null);
 
   const [pullToRefresh, setPullToRefresh] = useState({
-    isPulling: false,
+    isPulling: false, 
     pullDistance: 0,
     isRefreshing: false,
   });
@@ -1009,13 +1009,15 @@ const cancelCommandConfirmation = () => {
       }
 
       const newHvacValue = sensorData.powerStatus == "on" ? "0" : "1";
-      const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
+      // const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
 
       const payload = {
         Header: "0xAA",
         DI: selectedService?.pcb_serial_number || "2411GM-0102",
-        MD: isShutdown ? "3" : displayData.mode,
-        FS: isShutdown ? "0" : displayData.fanSpeed,
+         MD: displayData.mode,
+         FS: displayData.fanSpeed,
+        // MD: isShutdown ? "3" : displayData.mode,
+        // FS: isShutdown ? "0" : displayData.fanSpeed,
         SRT: displayData.temperature,
         HVAC: newHvacValue,
         Footer: "0xZX",

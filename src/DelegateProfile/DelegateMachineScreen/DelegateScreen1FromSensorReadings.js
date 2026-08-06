@@ -7685,15 +7685,17 @@ const DelegateScreen1 = () => {
       startProcessingCycle();
 
       const newHvacValue = sensorData.powerStatus == "on" ? "0" : "1";
-      const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
+      // const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
 
       console.log("⚡ Sending power command. New HVAC value:", newHvacValue);
 
       const payload = {
         Header: "0xAA",
         DI: selectedService.pcb_serial_number,
-        MD: isShutdown ? "3" : displayData.mode,
-        FS: isShutdown ? "0" : displayData.fanSpeed,
+         MD: displayData.mode,
+         FS: displayData.fanSpeed,
+        // MD: isShutdown ? "3" : displayData.mode,
+        // FS: isShutdown ? "0" : displayData.fanSpeed,
         SRT: displayData.temperature,
         HVAC: newHvacValue,
         Footer: "0xZX",

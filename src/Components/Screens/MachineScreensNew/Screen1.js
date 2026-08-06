@@ -8,5 +8,5 @@ const Screen1 = lazy(() =>
     ? import("./Screen1FromSensorReadings/Screen1FromSensorReadings")
     : import("./Screen1FromEvents/Screen1FromEvents")
 );
-
+ 
 export default Screen1;

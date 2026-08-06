@@ -2471,13 +2471,15 @@ const handleTouchEnd = async () => {
       startProcessingCycle();
 
       const newHvacValue = sensorData.powerStatus == "on" ? "0" : "1";
-      const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
+      // const isShutdown = displayData?.fanSpeed == 3 || displayData?.mode == 0;
 
       const payload = {
         Header: "0xAA",
         DI: selectedService?.pcb_serial_number || "2411GM-0102",
-        MD: isShutdown ? "3" : displayData.mode,
-        FS: isShutdown ? "0" : displayData.fanSpeed,
+         MD: displayData.mode,
+         FS: displayData.fanSpeed,
+        // MD: isShutdown ? "3" : displayData.mode,
+        // FS: isShutdown ? "0" : displayData.fanSpeed,
         SRT: displayData.temperature,
         HVAC: newHvacValue,
         Footer: "0xZX",
@@ -3071,15 +3073,11 @@ const handleTouchEnd = async () => {
 
         {/* Control Buttons */}
         <div className="control-buttons">
-          <button
-            className={`control-btn ${!hasValidPCBSerial ? "screen1-disabled-btn" : ""}`}
-            disabled={!hasValidPCBSerial}
-            title={!hasValidPCBSerial ? "Modes unavailable - No PCB serial number assigned to this machine" : ""}
-          >
-            {/* <FiWind size={20} /> */}
-            {/* <span>Modes</span> */}
-            {/* <span><strong>{getModeDescription(sensorData.mode)}</strong></span> */}
-          </button>
+            
+          <button className="control-btn"  onClick={() => handleNavigation("/chat-bot")}>
+                <FiMessageCircle size={20} />
+                <span>Chatbot</span> 
+              </button> 
 
           <button
             className="control-btn"

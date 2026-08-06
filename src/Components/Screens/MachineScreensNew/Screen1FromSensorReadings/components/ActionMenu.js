@@ -1,5 +1,6 @@
 import React from "react";
 import { FiClock, FiLogOut, FiSettings, FiWatch, FiZap } from "react-icons/fi";
+import { FiMessageCircle } from "react-icons/fi";
 
 const ActionMenu = ({
   hasValidPCBSerial,
@@ -10,10 +11,11 @@ const ActionMenu = ({
   servicePath = "/machine",
   timersDisabled = false,
   timersPath = "/timers",
+  chatBotPath = "/chat-bot",
   settingsPath = "/settings",
 }) => (
   <div className="control-buttons">
-    <button
+    {/* <button
       className={`control-btn ${!hasValidPCBSerial ? "screen1-disabled-btn" : ""}`}
       disabled={!hasValidPCBSerial}
       title={
@@ -22,7 +24,12 @@ const ActionMenu = ({
           : ""
       }
       aria-label="Machine modes placeholder"
-    />
+    /> */}
+
+     <button className="control-btn" onClick={() => onNavigate(chatBotPath)}>
+      <FiMessageCircle size={20} />
+      <span>Chatbot</span>
+    </button> 
 
     <button className="control-btn" onClick={onAlarms}>
       <div style={{ position: "relative" }}>

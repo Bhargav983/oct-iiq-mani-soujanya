@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 80px; /* to push below top navbar */
+  padding-top: 15px; /* to push below top navbar */
   text-align: left;
   min-height: 100vh;
   /* background-color: #f9f9f9; */

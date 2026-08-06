@@ -9,6 +9,7 @@ test("shows the assigned service selector only on the delegate requests page", (
 test.each([
   "/delegate-alarms",
   "/delegate-timers",
+  "delegate-chatbot",
   "/delegate-settings",
   "/delegate-home",
   "/delegate-survey",
