@@ -40,6 +40,7 @@ const AuthProvider = ({ children }) => {
     localStorage.removeItem("customerType");
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("session_id"); // ✅ IMPORTANT
+    localStorage.removeItem("selectedService");
   };
 
   return (

@@ -1,0 +1,508 @@
+.aira-chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  background: #f8fafc;
+}
+
+.aira-glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.aira-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1025;
+  background:transparent;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.aira-chat-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1rem;
+  scroll-behavior: smooth;
+}
+
+.aira-chat-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.aira-chat-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.aira-msg-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.aira-msg-row.user {
+  justify-content: flex-end;
+}
+
+.aira-avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+.aira-avatar.assistant {
+  background: #1A83B1;
+  color: #fff;
+}
+.aira-avatar.user {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.aira-bubble {
+  max-width: 85%;
+  padding: 0.625rem 1rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.aira-bubble.user {
+  background: #1A83B1;
+  color: #fff;
+  border-top-right-radius: 0.25rem;
+}
+.aira-bubble.assistant {
+  background: #fff;
+  color: #1e293b;
+  border-top-left-radius: 0.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.aira-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.aira-card-body {
+  padding: 1rem;
+}
+
+.aira-quick-reply-shell {
+  padding: 0.5rem 0.75rem 0;
+  background: transparent;
+}
+
+.aira-quick-reply-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 0.5rem 0.25rem 0.25rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.aira-quick-reply-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.aira-quick-reply-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.aira-quick-reply-chip:hover,
+.aira-quick-reply-chip:focus-visible {
+  border-color: rgba(26, 131, 177, 0.3);
+  background: rgba(26, 131, 177, 0.08);
+  color: #1A83B1;
+  box-shadow: 0 6px 16px rgba(26, 131, 177, 0.12);
+}
+
+.aira-quick-reply-chip:active {
+  transform: translateY(1px);
+}
+
+.aira-quick-reply-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.aira-quick-reply-chip svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.aira-quick-reply-label {
+  white-space: nowrap;
+}
+
+.aira-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.625rem;
+}
+
+.aira-quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  min-height: 64px;
+  padding: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.aira-input-box-wrapper {
+  position: relative;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Mention popover styles */
+.aira-mention-popover {
+  position: absolute;
+  bottom: 100%;
+  left: 0.5rem;
+  right: 0.5rem;
+  margin-bottom: 0.5rem;
+  max-height: 180px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.15);
+  z-index: 1050; /* Ensures it floats over quick reply buttons without covering input */
+  padding: 0.25rem 0;
+}
+
+.aira-mention-header {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  z-index: 1031;
+}
+
+.aira-mention-item {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-height: 44px;
+  transition: all 0.15s ease;
+}
+
+.aira-mention-item:hover,
+.aira-mention-item:focus {
+  background: rgba(26, 131, 177, 0.08);
+  color: #1A83B1;
+}
+
+.aira-mention-item.active {
+  background: rgba(26, 131, 177, 0.12);
+  color: #1A83B1;
+  font-weight: 500;
+}
+
+/* Voice input dropdown styling */
+.aira-voice-dropdown .dropdown-toggle::after {
+  display: none;
+}
+
+.aira-voice-dropdown .dropdown-menu {
+  min-width: 120px;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: none;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.aira-voice-dropdown .dropdown-item {
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  transition: background-color 0.15s ease;
+}
+
+.aira-voice-dropdown .dropdown-item:hover,
+.aira-voice-dropdown .dropdown-item:focus {
+  background-color: rgba(26, 131, 177, 0.1);
+  color: #1A83B1 !important;
+}
+
+.aira-voice-dropdown .dropdown-item.active,
+.aira-voice-dropdown .dropdown-item:active {
+  background-color: #1A83B1 !important;
+  color: #ffffff !important;
+}
+
+.aira-voice-dropdown .dropdown-item.active:hover,
+.aira-voice-dropdown .dropdown-item:active:hover {
+  background-color: #156d8f !important;
+  color: #ffffff !important;
+}
+.aira-quick-btn:hover {
+  border-color: rgba(26, 131, 177, 0.3);
+  box-shadow: 0 2px 8px rgba(26, 131, 177, 0.12);
+}
+.aira-quick-btn:active {
+  transform: scale(0.98);
+}
+
+.aira-quick-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+}
+
+.aira-action-btn {
+  min-height: 44px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0.75rem;
+}
+
+/* Compact horizontal machine card */
+.aira-machine-card .aira-card-body {
+  padding: 0.5rem 0.75rem;
+}
+
+.aira-machine-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.aira-machine-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.aira-machine-info .fw-semibold {
+  font-size: 0.875rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14rem;
+}
+
+.aira-machine-info .aira-service-id {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.aira-machine-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.aira-machine-actions .aira-action-btn {
+  min-height: 32px;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  line-height: 1.3;
+}
+
+.aira-machine-actions .aira-action-btn .bi {
+  font-size: 0.7rem;
+}
+
+@media (max-width: 576px) {
+  .aira-machine-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .aira-machine-info {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .aira-machine-info .fw-semibold {
+    max-width: 100%;
+  }
+
+  .aira-machine-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .aira-machine-actions .aira-action-btn {
+    flex: 1 1 auto;
+    text-align: center;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    min-height: 30px;
+  }
+}
+
+.aira-metric {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+.aira-metric.danger {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.aira-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.aira-status-dot.online { background: #10b981; }
+.aira-status-dot.offline { background: #94a3b8; }
+.aira-status-dot.attention { background: #f97316; }
+
+.aira-voice-pill {
+  width: min(42rem, calc(100% - 1.5rem));
+  margin: 0.5rem auto;
+  padding: 0.55rem 0.65rem 0.55rem 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(26, 131, 177, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(14px);
+}
+.aira-voice-wave { height: 28px; display: flex; align-items: center; gap: 3px; }
+.aira-voice-wave span { width: 3px; height: 24px; border-radius: 999px; background: #1A83B1; transition: transform 75ms ease-out; }
+.aira-voice-pill-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; line-height: 1.15; }
+.aira-voice-pill-copy strong { font-size: 0.8rem; color: #0f172a; }
+.aira-voice-pill-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.73rem; color: #64748b; }
+.aira-voice-pill-actions { display: flex; gap: 0.35rem; }
+.aira-voice-pill-actions button, .aira-voice-mode-trigger { border: 0; background: transparent; color: #1A83B1; }
+.aira-voice-pill-actions button { width: 30px; height: 30px; border-radius: 50%; }
+.aira-voice-pill-actions button:hover, .aira-voice-mode-trigger:hover { background: rgba(26, 131, 177, 0.1); }
+.aira-voice-pill-actions .aira-voice-stop, .aira-voice-pill-actions .aira-voice-send { background: #1A83B1; color: #fff; }
+.aira-voice-mode-trigger { border-radius: 999px; padding: 0.2rem 0.45rem; font-weight: 600; }
+.aira-voice-mode-trigger:disabled { opacity: 0.45; }
+
+.aira-fade-in {
+  animation: aira-fade-in 0.25s ease-out;
+}
+@keyframes aira-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Amber button styles for error messages */
+.aira-amber-btn {
+  --bs-btn-hover-bg: #fbbf24;
+  --bs-btn-hover-border-color: #fbbf24;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-active-bg: #fbbf24;
+  --bs-btn-active-border-color: #fbbf24;
+  --bs-btn-focus-shadow-rgb: 251, 191, 36;
+}
+
+.aira-amber-btn:hover,
+.aira-amber-btn:focus,
+.aira-amber-btn:active {
+  background-color: #fbbf24 !important;
+  border-color: #fbbf24 !important;
+  color: #fff !important;
+}
+
+/* Inline error card - compact single line */
+.aira-error-inline {
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.aira-error-inline .aira-card-body {
+  padding: 0.375rem 0.5rem !important;
+}
+
+.aira-icon-btn {
+  min-height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 0.5rem !important;
+  transition: all 0.15s ease;
+}
+
+.aira-icon-btn:hover {
+  transform: scale(1.05);
+}
+
+.aira-icon-btn:active {
+  transform: scale(0.95);
+}
+
+[dir='rtl'] .aira-flip-x {
+  transform: scaleX(-1);
+}

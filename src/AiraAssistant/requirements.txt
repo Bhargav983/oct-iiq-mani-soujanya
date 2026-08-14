@@ -1,0 +1,75 @@
+# Project Dependencies for AiraAssistant
+# This file contains the required dependencies for the React application
+
+# Core React Dependencies
+react ^19.1.0
+react-dom ^19.1.0
+react-scripts ^5.0.1
+
+# UI Framework Dependencies
+bootstrap ^5.3.8
+bootstrap-icons ^1.13.1
+react-bootstrap ^2.10.10
+react-icons ^5.5.0
+react-select ^5.10.2
+react-datepicker ^8.8.0
+react-markdown ^10.1.0
+react-router-dom ^7.6.0
+react-toastify ^11.0.5
+
+# State Management & Notifications
+notistack ^3.0.2
+sweetalert2 ^11.22.2
+
+# HTTP & API
+axios ^1.12.2
+
+# Testing Dependencies
+@testing-library/dom ^10.4.0
+@testing-library/jest-dom ^6.6.3
+@testing-library/react ^16.3.0
+@testing-library/user-event ^13.5.0
+
+# TypeScript & Linting
+@types/node ^26.1.2
+@types/react ^19.2.18
+@types/react-dom ^19.2.4
+typescript ^4.9.5
+eslint-plugin-react-hooks ^4.6.2
+
+# Code Quality & Formatting
+web-vitals ^2.1.4
+
+# Firebase (if used)
+firebase ^11.10.0
+
+# Other Dependencies
+dotenv ^17.4.2
+ajv 8.17.1
+cors ^2.8.6
+express ^5.2.1
+
+# Markdown Processing
+rehype-raw ^7.0.0
+remark-gfm ^4.0.1
+
+# Voice Activity Detection & Wake Word Dependencies
+@ricky0123/vad-react ^0.0.35
+openwakeword-wasm-browser ^0.1.1
+
+# Development Dependencies for Build Configuration
+customize-cra ^1.0.0
+react-app-rewired ^2.2.1
+
+# Project Metadata
+name: octane-hvac-customer
+version: 0.1.0
+private: true
+
+# Scripts (for reference)
+scripts:
+  start: react-scripts start
+  build: react-scripts build
+  test: react-scripts test
+  eject: react-scripts eject
+  ai-server: node server/index.js
