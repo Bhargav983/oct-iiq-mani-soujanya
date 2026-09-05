@@ -154,6 +154,13 @@ useEffect(() => {
 }, [processing.status]);
 
   // Add this after your sensorData state declaration
+
+const shouldBlockControls = (errCode) => {
+  if (!errCode || errCode === "0") return false;
+  const errorCode = parseInt(errCode, 10);
+  const blockList = [1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 20];
+  return blockList.includes(errorCode);
+};
 const isControlDisabled = () => {
   // Delegate controls require explicit permission for the selected assignment.
   if (!serviceItemPermissions.can_control_equipment) return true;
@@ -165,7 +172,7 @@ const isControlDisabled = () => {
   if (!sensorData.isOnline) return true;
   
   // Disable if error flag is 1
-  if (sensorData.errorFlag === "1") return true;
+  if (sensorData.errorFlag === "1" && shouldBlockControls(sensorData.errorCode)) return true;
   
   // Disable if HVAC is busy
   if (sensorData.hvacBusy === "1") return true;
@@ -807,21 +814,134 @@ const cancelCommandConfirmation = () => {
   }, [selectedService?.pcb_serial_number]);
 
   const sendRefreshToController = async () => {
-    if (!serviceItemPermissions.can_control_equipment) {
-      setRefreshStatus({ sending: false, success: false, message: "View-only access" });
+    if (!serviceItemPermissions?.can_control_equipment) {
+      setRefreshStatus({ sending: false, success: false, message: "Control permissions not available" });
       return { success: false };
     }
-    if (!selectedService?.pcb_serial_number) {
+    const pcbSerialNumber = selectedService?.pcb_serial_number;
+    if (!pcbSerialNumber) {
       setRefreshStatus({ sending: false, success: false, message: "No device selected" });
       return { success: false };
     }
+    
+    
+
+    let preEvent = null;
     try {
-      const result = await sendRefreshCommand(selectedService.pcb_serial_number, sensorData);
+      const EVENTS_API = "https://mdata.air2o.net/events/filter/";
+      const preRes = await fetch(`${EVENTS_API}?device_id=${encodeURIComponent(pcbSerialNumber)}`);
+      if (preRes.ok) {
+        const preData = await preRes.json();
+        const preEvents = Array.isArray(preData) ? preData : preData.results || preData.data || [];
+        const statusEvents = preEvents.filter(ev => typeof ev.payload === "string" && ev.payload.trim().startsWith("0xA3"));
+        if (statusEvents.length > 0) {
+          preEvent = {
+            id: statusEvents[0].id,
+            created_at: statusEvents[0].created_at,
+            payload: statusEvents[0].payload,
+            device_id: pcbSerialNumber
+          };
+          
+          // Save the required device/heartbeat details and current device status in localStorage
+          localStorage.setItem(`heartbeat_${pcbSerialNumber}`, JSON.stringify({
+            device_id: pcbSerialNumber,
+            device_status: "VERIFYING",
+            previous_event_id: preEvent.id,
+            previous_payload: preEvent.payload,
+            previous_created_at: preEvent.created_at,
+            latest_event_id: preEvent.id,
+            latest_payload: preEvent.payload,
+            latest_created_at: preEvent.created_at,
+            last_heartbeat_time: new Date().toISOString()
+          }));
+          console.log("Captured pre-heartbeat event:", preEvent);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not capture baseline payload ID:", e);
+    }
+
+    try {
+      setRefreshStatus({ sending: true, success: false, message: "Sending refresh command..." });
+      const result = await sendRefreshCommand(pcbSerialNumber, sensorData);
+      
       if (result.success) {
-        setRefreshStatus({ sending: false, success: true, message: "Refresh sent successfully" });
-        setTimeout(() => setRefreshStatus({ sending: false, success: false, message: "" }), 3000);
+        setRefreshStatus({ sending: true, success: false, message: "Refresh sent. Verifying device response (up to 2 mins)..." });
+        
+        let attempts = 0;
+        const maxAttempts = 24; // 24 * 5s = 120s (2 minutes)
+        
+        const pollInterval = setInterval(async () => {
+          attempts++;
+          try {
+            const EVENTS_API = "https://mdata.air2o.net/events/filter/";
+            const pollRes = await fetch(`${EVENTS_API}?device_id=${encodeURIComponent(pcbSerialNumber)}`);
+            
+            if (pollRes.ok) {
+              const pollData = await pollRes.json();
+              const pollEvents = Array.isArray(pollData) ? pollData : pollData.results || pollData.data || [];
+              const statusEvents = pollEvents.filter(ev => typeof ev.payload === "string" && ev.payload.trim().startsWith("0xA3"));
+              
+              if (statusEvents.length > 0) {
+                const latest = statusEvents[0];
+                const baselineId = preEvent ? preEvent.id : null;
+                const baselinePayload = preEvent ? preEvent.payload : null;
+                
+                // Compare it with the event stored before sending the heartbeat
+                // New event / Payload changed -> Device is ONLINE
+                if ((latest.id && latest.id !== baselineId) || (latest.payload && latest.payload !== baselinePayload)) {
+                  clearInterval(pollInterval);
+                  
+                  // Save confirmation to localStorage
+                  localStorage.setItem(`heartbeat_${pcbSerialNumber}`, JSON.stringify({
+                    device_id: pcbSerialNumber,
+                    device_status: "ONLINE",
+                    previous_event_id: baselineId,
+                    previous_payload: baselinePayload,
+                    previous_created_at: preEvent ? preEvent.created_at : null,
+                    latest_event_id: latest.id,
+                    latest_payload: latest.payload,
+                    latest_created_at: latest.created_at,
+                    last_heartbeat_time: new Date().toISOString()
+                  }));
+                  
+                  setSensorData(prev => ({ ...prev, isOnline: true }));
+                  setRefreshStatus({ sending: false, success: true, message: "Device responded! Unit is Online." });
+                  setTimeout(() => setRefreshStatus({ sending: false, success: false, message: "" }), 3000);
+                  if (typeof fetchData === "function") fetchData();
+                  return;
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Error fetching during online status polling:", err);
+          }
+          
+          if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            
+            // Save confirmation OFFLINE to localStorage
+            localStorage.setItem(`heartbeat_${pcbSerialNumber}`, JSON.stringify({
+              device_id: pcbSerialNumber,
+              device_status: "OFFLINE",
+              previous_event_id: preEvent ? preEvent.id : null,
+              previous_payload: preEvent ? preEvent.payload : null,
+              previous_created_at: preEvent ? preEvent.created_at : null,
+              latest_event_id: preEvent ? preEvent.id : null,
+              latest_payload: preEvent ? preEvent.payload : null,
+              latest_created_at: preEvent ? preEvent.created_at : null,
+              last_heartbeat_time: new Date().toISOString()
+            }));
+            
+            setSensorData(prev => ({ ...prev, isOnline: false }));
+            setRefreshStatus({ sending: false, success: false, message: "No response from unit. Device is Offline." });
+            setTimeout(() => setRefreshStatus({ sending: false, success: false, message: "" }), 5000);
+          }
+        }, 5000);
+
         return result;
       }
+      
       const msg = result?.error || result?.message || "Failed to send refresh command";
       setRefreshStatus({ sending: false, success: false, message: msg });
       setTimeout(() => setRefreshStatus({ sending: false, success: false, message: "" }), 2000);
