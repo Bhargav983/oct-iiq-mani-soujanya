@@ -66,6 +66,7 @@ const DelegateTimers = lazy(() => import("./DelegateProfile/DelegateMachineScree
 const DelegateSettings = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateSettings"));
 const Aira = lazy(() => import("./AiraAssistant"));
 const ChatBotNew = lazy(() => import("./Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/ChatBotNew"));
+const LocalstorageData = lazy(() => import("./Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/LocalstorageData"));
 
 function AppRouteLoading() {
   return (
@@ -170,6 +171,7 @@ function App() {
                       <Route path="/timers" element={<Timers />} />
                       <Route path="/chat-bot" element={<Aira />} />
                        <Route path="/chat-bot-new" element={<ChatBotNew />} />
+                         <Route path="/localstorage-data" element={<LocalstorageData />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/machine-service-request-form" element={<MachineRequestForm />} />
                       <Route path="/machine" element={<MachineScreen />} />
