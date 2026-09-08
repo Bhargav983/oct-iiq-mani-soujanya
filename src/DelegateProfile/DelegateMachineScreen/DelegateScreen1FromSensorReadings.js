@@ -246,7 +246,36 @@ const DelegateScreen1 = () => {
   });
 
   // Sync displayData with sensorData
+  
+  // Instant optimistic localStorage sync upon service item selection change
   useEffect(() => {
+    if (selectedService) {
+      try {
+        const pcb = selectedService?.pcb_serial_number || "";
+        if (pcb) {
+          const immediatePayload = {
+            pcb_serial_number: pcb,
+            service_item_id: selectedService?.service_item_id || "",
+            set_temperature: sensorData?.temperature ?? 25,
+            room_temperature: sensorData?.roomTemp ?? null,
+            outdoor_temperature: sensorData?.outsideTemp ?? null,
+            room_humidity: sensorData?.humidity ?? null,
+            mode: sensorData?.mode ?? "3",
+            fan_speed: sensorData?.fanSpeed ?? "0",
+            power_status: sensorData?.powerStatus ?? "off",
+            is_online: sensorData?.isOnline ?? true,
+            error_flag: sensorData?.errorFlag ?? "0",
+            error_code: sensorData?.errorCode ?? "0",
+            alarm_occurred: sensorData?.alarmOccurred ?? "0",
+            last_updated: new Date().toISOString()
+          };
+          localStorage.setItem("active_machine_parameters", JSON.stringify(immediatePayload));
+        }
+      } catch (e) {}
+    }
+  }, [selectedService]);
+
+useEffect(() => {
     setDisplayData({
       fanSpeed: sensorData.fanSpeed,
       temperature: sensorData.temperature,

@@ -65,6 +65,7 @@ const DelegateMachineAlert = lazy(() => import("./DelegateProfile/DelegateMachin
 const DelegateTimers = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateTimers"));
 const DelegateSettings = lazy(() => import("./DelegateProfile/DelegateMachineScreen/DelegateSettings"));
 const Aira = lazy(() => import("./AiraAssistant"));
+const ChatBotNew = lazy(() => import("./Components/Screens/MachineScreensNew/Screen1FromSensorReadings/components/ChatBotNew"));
 
 function AppRouteLoading() {
   return (
@@ -168,6 +169,7 @@ function App() {
                       <Route path="/alarms" element={<AlarmsPage />} />
                       <Route path="/timers" element={<Timers />} />
                       <Route path="/chat-bot" element={<Aira />} />
+                       <Route path="/chat-bot-new" element={<ChatBotNew />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/machine-service-request-form" element={<MachineRequestForm />} />
                       <Route path="/machine" element={<MachineScreen />} />
