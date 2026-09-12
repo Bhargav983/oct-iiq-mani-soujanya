@@ -1,9 +1,16 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+import { answerMachineQuestionLocally } from "./machineAssistant";
+
+const CHATBOT_API_URL =
+  process.env.REACT_APP_CHATBOT_API_URL || "http://localhost:5000";
 
 const ChatBotNew = () => {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Checking current machine data...");
+  const responseCache = useRef(new Map());
 
   const getMachineData = () => {
     const activeMachineParameters = localStorage.getItem(
@@ -41,6 +48,8 @@ const ChatBotNew = () => {
 
     setMessage("");
     setLoading(true);
+    let requestTimeoutId = null;
+    let pendingResponseId = null;
 
     try {
       const machineData = getMachineData();
@@ -51,8 +60,30 @@ const ChatBotNew = () => {
         );
       }
 
+      const localAnswer = answerMachineQuestionLocally(userMessage, machineData);
+
+      if (localAnswer) {
+        setMessages((prev) => [...prev, { role: "bot", text: localAnswer }]);
+        return;
+      }
+
+      setLoadingMessage("Preparing a detailed answer...");
+      const cacheKey = JSON.stringify({
+        question: userMessage.toLowerCase().replace(/\s+/g, " ").trim(),
+        pcb: machineData.pcb_serial_number,
+        updated: machineData.last_updated,
+      });
+      const cachedAnswer = responseCache.current.get(cacheKey);
+
+      if (cachedAnswer) {
+        setMessages((prev) => [...prev, { role: "bot", text: cachedAnswer }]);
+        return;
+      }
+
+      const controller = new AbortController();
+      requestTimeoutId = setTimeout(() => controller.abort(), 45000);
       const response = await fetch(
-        "http://localhost:5000/api/chatbot",
+        `${CHATBOT_API_URL}/api/chatbot/stream`,
         {
           method: "POST",
           headers: {
@@ -62,34 +93,73 @@ const ChatBotNew = () => {
             question: userMessage,
             machineData: machineData,
           }),
+          signal: controller.signal,
         }
       );
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || "Something went wrong.");
+        const errorBody = await response.text();
+        let errorMessage = "Unable to get a detailed answer.";
+        try {
+          errorMessage = JSON.parse(errorBody).error || errorMessage;
+        } catch (_) {
+          if (errorBody) errorMessage = errorBody;
+        }
+        throw new Error(errorMessage);
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "bot",
-          text: data.answer,
-        },
-      ]);
+      const responseId = `bot-${Date.now()}`;
+      pendingResponseId = responseId;
+      let answer = "";
+      setStreaming(true);
+      setMessages((prev) => [...prev, { id: responseId, role: "bot", text: "" }]);
+
+      if (!response.body) {
+        answer = await response.text();
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === responseId ? { ...item, text: answer } : item
+          )
+        );
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          answer += decoder.decode(value, { stream: true });
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === responseId ? { ...item, text: answer } : item
+            )
+          );
+        }
+        answer += decoder.decode();
+      }
+
+      if (!answer.trim()) {
+        throw new Error("The assistant returned an empty answer. Please try again.");
+      }
+      responseCache.current.set(cacheKey, answer);
     } catch (error) {
       console.error("Chatbot error:", error);
 
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((item) => item.id !== pendingResponseId),
         {
           role: "bot",
-          text: error.message || "Unable to get response.",
+          text:
+            error.name === "AbortError"
+              ? "The detailed answer is taking longer than expected. Please try again."
+              : error.message || "Unable to get response.",
         },
       ]);
     } finally {
+      if (requestTimeoutId) clearTimeout(requestTimeoutId);
       setLoading(false);
+      setStreaming(false);
+      setLoadingMessage("Checking current machine data...");
     }
   };
 
@@ -165,7 +235,7 @@ const ChatBotNew = () => {
             </div>
           ))}
 
-          {loading && (
+          {loading && !streaming && (
             <div style={styles.messageRow}>
               <div
                 style={{
@@ -173,7 +243,7 @@ const ChatBotNew = () => {
                   ...styles.botBubble,
                 }}
               >
-                Thinking...
+                {loadingMessage}
               </div>
             </div>
           )}
