@@ -13,6 +13,7 @@ import {
   ServiceRequestDetailsCard,
 } from './ServiceRequest';
 import { ErrorCard, LoadingCard } from './LoadingError';
+import { ErrorAnalyticsCard } from './ErrorAnalyticsCard';
 import { getMachines } from '../services/machineService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -183,6 +184,9 @@ function renderAssistant(
 
     case 'error':
       return <ErrorCard lang={lang} onAction={(a) => onAction(a as Action)} />;
+
+    case 'errorLogs':
+      return <ErrorAnalyticsCard data={message.data.logs} lang={lang} onRaiseServiceRequest={(error, pcb_serial_number) => onAction({ type: 'text', text: `Raise service request for error: ${error.description} on machine ${pcb_serial_number}` })} />;
 
     default:
       return null;

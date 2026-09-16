@@ -10,6 +10,11 @@ import { SnackbarProvider } from "notistack";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import "./App.css";
+import {
+  VoiceAssistantProvider,
+  VoiceNavigationBridge,
+  LocationBridge,
+} from "./AiraAssistant/context/VoiceAssistantContext";
 
 const SetPasswordScreen = lazy(() => import("./Components/LoginSreens/SetPasswordScreen"));
 const ForgotPasswordScreen = lazy(() => import("./Components/LoginSreens/ForgotPasswordScreen"));
@@ -144,12 +149,15 @@ function App() {
     <AuthProvider>
       <DelegateServiceItemProvider>
         <CustomerNotificationProviderWrapper>
+           <VoiceAssistantProvider>
           <SnackbarProvider
             maxSnack={3}
             anchorOrigin={{ vertical: "top", horizontal: "right" }}
             autoHideDuration={4000}
           >
             <Router>
+                <VoiceNavigationBridge />
+                 <LocationBridge />
             <ScrollToTop /> 
               <div className="App">
                 <ToastContainer
@@ -170,7 +178,7 @@ function App() {
                       <Route path="/alarms" element={<AlarmsPage />} />
                       <Route path="/timers" element={<Timers />} />
                       <Route path="/chat-bot" element={<Aira />} />
-                       <Route path="/chat-bot-new" element={<ChatBotNew />} />
+                       {/* <Route path="/chat-bot-new" element={<ChatBotNew />} /> */}
                          <Route path="/localstorage-data" element={<LocalstorageData />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/machine-service-request-form" element={<MachineRequestForm />} />
@@ -227,6 +235,7 @@ function App() {
               </div>
             </Router>
           </SnackbarProvider>
+               </VoiceAssistantProvider>
         </CustomerNotificationProviderWrapper>
       </DelegateServiceItemProvider>
     </AuthProvider>

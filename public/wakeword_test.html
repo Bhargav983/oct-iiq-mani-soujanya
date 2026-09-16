@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenWakeWord Test - Hey AIRA</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #121212; color: #fff; }
+    .card { background: #1e1e1e; padding: 1.5rem; border-radius: 8px; max-width: 500px; margin: auto; text-align: center; }
+    button { padding: 10px 20px; font-size: 1rem; cursor: pointer; border-radius: 5px; border: none; background: #3b82f6; color: white; margin: 0 5px; }
+    button:disabled { background: #555; }
+    .status { margin-top: 1rem; font-weight: bold; font-size: 1.2rem; }
+    .detected { color: #22c55e; animation: pulse 0.5s ease-in-out; }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    .log-box { margin-top: 1rem; height: 220px; background: #000; overflow-y: auto; text-align: left; padding: 10px; font-family: monospace; font-size: 0.85rem; }
+  </style>
+  <!-- Load ONNX Runtime Web v1.14.0 directly -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+</head>
+<body>
+
+<div class="card">
+  <h2>"Hey AIRA" Model Tester</h2>
+  <button id="startBtn">Start Listening</button>
+  <button id="stopBtn" disabled>Stop</button>
+
+  <div id="status" class="status">Click "Start Listening"</div>
+  <div id="log" class="log-box"></div>
+</div>
+
+<script type="module">
+  import WakeWordEngine from 'https://cdn.jsdelivr.net/npm/openwakeword-wasm-browser@0.1.0/+esm';
+
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+
+  let engine = null;
+
+  function log(msg) {
+    const entry = document.createElement('div');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      startBtn.disabled = true;
+      statusEl.textContent = "Loading models...";
+      log("Initializing WakeWordEngine...");
+
+      // Disable multithreading/JSEP modules to avoid .mjs import errors in browser
+      if (window.ort) {
+        window.ort.env.wasm.numThreads = 1;
+        window.ort.env.wasm.simd = true;
+        window.ort.env.wasm.proxy = false;
+      }
+
+      engine = new WakeWordEngine({
+        baseAssetUrl: '/openwakeword/models/',
+        // Point ortWasmPath to openwakeword's static asset directory on CDN
+        ortWasmPath: 'https://cdn.jsdelivr.net/npm/openwakeword-wasm-browser@0.1.0/vendor/ort/',
+        keywords: ['hey_aira'],
+        detectionThreshold: 0.50,
+      });
+
+      await engine.load();
+      log("Models loaded successfully!");
+
+      engine.on('detect', ({ keyword, score }) => {
+        log(`🎯 DETECTED: "${keyword}" (Confidence: ${(score * 100).toFixed(1)}%)`);
+        statusEl.textContent = `🎉 Detected "${keyword}"!`;
+        statusEl.classList.add('detected');
+
+        setTimeout(() => {
+          statusEl.classList.remove('detected');
+          statusEl.textContent = "Listening for 'Hey AIRA'...";
+        }, 2000);
+      });
+
+      engine.on('speech-start', () => log("Voice activity detected..."));
+      engine.on('error', (err) => log(`ERROR: ${err.message || err}`));
+
+      await engine.start();
+      statusEl.textContent = "Listening for 'Hey AIRA'...";
+      stopBtn.disabled = false;
+      log("Microphone active and listening.");
+    } catch (err) {
+      console.error(err);
+      log(`Initialization failed: ${err.message || err}`);
+      statusEl.textContent = "Failed to start.";
+      startBtn.disabled = false;
+    }
+  });
+
+  stopBtn.addEventListener('click', async () => {
+    if (engine) {
+      await engine.stop();
+      log("Engine stopped.");
+    }
+    statusEl.textContent = "Stopped.";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  });
+</script>
+
+</body>
+</html>

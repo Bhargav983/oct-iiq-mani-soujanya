@@ -1,18 +1,27 @@
-import type { ChatMessage, ChatContext, Machine, ServiceRequest, SuggestedAction } from '../types';
+import type { ChatMessage, ChatContext, Machine, ServiceRequest, SuggestedAction, ErrorLogsCardData } from '../types';
 import { createMessageId } from '../utils/messageId';
 import { setCachedMachines } from './machineService';
+import type { AuthParams } from '../utils/useAuth';
 
 // n8n Webhook endpoint for the HVAC chat flow.
-const WEBHOOK_URL = 'https://n8ncustomer.air2o.net/webhook/hvac-chat-test-new-version';
+const WEBHOOK_URL = 'https://n8ncustomer.air2o.net/webhook/hvac-chat-test-new-version-2';
 
-// TODO: replace with real values from auth/session context once available.
-const CUSTOMER_ID = '05100';
-const COMPANY_ID = 'SA-GA-01';
+// const WEBHOOK_URL = 'http://localhost:5000/api/chat';
+// const WEBHOOK_URL = 'http://localhost:5000/api/hvac/chat';
 
-const userId = localStorage.getItem('userId') || undefined;
-const Service = localStorage.getItem('selectedService') || undefined;
-const companyId = Service ? JSON.parse(Service).company : undefined;
-console.log('userId:', userId, 'company_id:', companyId);
+/**
+ * Authenticated identity that must be threaded into every outgoing n8n
+ * webhook call. Provided by the React AuthContext via the
+ * `VoiceAssistantProvider` — never hard-coded.
+ *
+ * `userId` and `companyId` are intentionally optional so callers can
+ * short-circuit gracefully if the auth state hasn't hydrated yet (e.g.
+ * very first render after a hard reload). Empty strings are still sent
+ * to the webhook so the contract is satisfied server-side; downstream
+ * n8n nodes are responsible for rejecting truly anonymous calls.
+ */
+export type AuthParamsInput = Partial<AuthParams>;
+
 
 export type N8nCard =
   | { type: 'machines'; machines: Machine[] }
@@ -23,7 +32,8 @@ export type N8nCard =
   | { type: 'confirmation'; machineName: string; label: string }
   | { type: 'serviceSuccess'; request: ServiceRequest }
   | { type: 'serviceDetails'; request: ServiceRequest }
-  | { type: 'quickActions' };
+  | { type: 'quickActions' }
+  | { type: 'errorLogs'; logs: ErrorLogsCardData };
 
 export type N8nResponse = {
   text?: string;
@@ -40,14 +50,21 @@ export type N8nResponse = {
   body?: unknown;
 };
 
-export async function callAssistant(chatInput: string): Promise<N8nResponse> {
+export async function callAssistant(
+  chatInput: string,
+  authParams?: AuthParamsInput,
+): Promise<N8nResponse> {
   const res = await fetch(WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: chatInput,
-      customer_id: userId,
-      company_id: companyId,
+      // Authenticated identity — sourced from React <AuthContext /> at the
+      // call site (see VoiceAssistantProvider) and passed in here. Empty
+      // strings are sent through unchanged so n8n can apply its own
+      // "missing identity" guard without the client dropping the call.
+      customer_id: authParams?.userId ?? '',
+      company_id: authParams?.companyId ?? '',
     }),
   });
 
@@ -175,6 +192,8 @@ function cardToMessage(card: N8nCard, now: number, suggestedActions?: SuggestedA
       return { ...base, kind: 'serviceSuccess', data: { request: card.request }, suggestedActions };
     case 'serviceDetails':
       return { ...base, kind: 'serviceDetails', data: { request: card.request }, suggestedActions };
+    case 'errorLogs':
+      return { ...base, kind: 'errorLogs', data: { logs: card.logs }, suggestedActions };
     case 'quickActions':
       return { ...base, kind: 'quickActions', suggestedActions };
     default:

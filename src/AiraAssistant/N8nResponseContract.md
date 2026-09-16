@@ -283,6 +283,48 @@ Forces rendering of the default grid of quick action tiles directly inside the c
 
 ---
 
+### 4.10. Error Logs Card (`errorLogs`)
+
+Displays error analytics and critical error details for a specific machine.
+
+```json
+{
+  "type": "errorLogs",
+  "logs": {
+    "pcb_serial_number": "2411GM-0102",
+    "is_online": true,
+    "total_error_count": 248,
+    "has_critical_errors": true,
+    "critical_error_count": 168,
+    "top_critical_errors": [
+      {
+        "id": 108613,
+        "error_code": 7,
+        "description": "Direct Pump Current Missing or Overload",
+        "priority": "HIGH",
+        "timestamp": "2026-08-04T07:19:03.269665Z"
+      },
+      {
+        "id": 108593,
+        "error_code": 7,
+        "description": "Direct Pump Current Missing or Overload",
+        "priority": "HIGH",
+        "timestamp": "2026-08-04T07:11:19.983824Z"
+      },
+      {
+        "id": 104877,
+        "error_code": 7,
+        "description": "Direct Pump Current Missing or Overload",
+        "priority": "HIGH",
+        "timestamp": "2026-07-30T11:43:06.789702Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## 5. Structured Object Schemas
 
 To ensure flawless parsing and styling, nested objects must conform to these exact schemas.

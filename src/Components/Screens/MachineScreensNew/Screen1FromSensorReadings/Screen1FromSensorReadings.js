@@ -145,7 +145,7 @@ const isControlDisabled = () => {
   if (!sensorData.isOnline) return true;
   
   // Disable if error flag is 1
-  if (sensorData.errorFlag === "1" && shouldBlockControls(sensorData.errorCode)) return true;
+  if (sensorData.errorFlag === "1" && (shouldBlockControls(sensorData.activeErrorCodes) || shouldBlockControls(sensorData.errorCode))) return true;
   
   // Disable if HVAC is busy
   if (sensorData.hvacBusy === "1") return true;
@@ -689,10 +689,10 @@ const clearProcessingIfDone = () => {
       const result = await sendRefreshCommand(pcbSerialNumber, sensorData);
       
       if (result.success) {
-        setRefreshStatus({ sending: true, success: false, message: "Refresh sent. Verifying device response (up to 2 mins)..." });
+        setRefreshStatus({ sending: true, success: false, message: "Refresh sent. Verifying device response (up to 90sec)..." });
         
         let attempts = 0;
-        const maxAttempts = 24; // 24 * 5s = 120s (2 minutes)
+        const maxAttempts = 18; // 90 seconds (18 * 5s) // 24 * 5s = 120s (2 minutes)
         
         const pollInterval = setInterval(async () => {
           attempts++;
@@ -1154,13 +1154,13 @@ const clearProcessingIfDone = () => {
         {/* Refresh status toast */}
         {/* {refreshStatus.message && (
           <div className={`screen1-refresh-status ${refreshStatus.success ? "success" : "error"}`}>
-            {refreshStatus.message}
+            <span style={{ color: "#28a745", fontWeight: 600 }}>{refreshStatus.message}</span>
           </div>
         )} */}
         {/* Refresh status toast (popup, floating) */}
         {refreshStatus.message && (
           <div className={`refresh-status-toast ${refreshStatus.success ? "success" : "error"}`}>
-            {refreshStatus.message}
+            <span style={{ color: "#28a745", fontWeight: 600 }}>{refreshStatus.message}</span>
           </div>
         )}
 

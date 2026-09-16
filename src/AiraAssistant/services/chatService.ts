@@ -8,7 +8,7 @@ import type {
 } from '../types';
 import { getMachineById } from './machineService';
 import { createServiceRequest, getRequestById } from './serviceRequestService';
-import { callAssistant, mapResponse } from './api';
+import { callAssistant, mapResponse, type AuthParamsInput } from './api';
 import { t } from '../i18n/strings';
 import type { Language } from '../types';
 import type { SuggestedAction } from '../types';
@@ -41,6 +41,15 @@ export type DispatchResult = {
   run: () => Promise<{ messages: ChatMessage[]; contextPatch: Partial<ChatContext> }>;
 };
 
+/**
+ * Optional dispatcher-wide auth override. When set, every webhook-bound
+ * action flows through with this identity (instead of any auth params
+ * baked into the dispatch() call site). Mirrors `callAssistant`'s
+ * `authParams` parameter so the chat-flow pipeline and the standalone
+ * API share a single source of identity.
+ */
+export type DispatchAuth = AuthParamsInput;
+
 function assistant(
   kind: ChatMessage['kind'],
   data?: any,
@@ -64,11 +73,11 @@ function actionToChatInput(action: Action, ctx: ChatContext): string {
   switch (action.type) {
     case 'quick':
       if (action.key === 'myMachines') return s.qaMyMachines;
-      if (action.key === 'offline') return s.qaOffline;
       if (action.key === 'status') return s.qaStatus;
       if (action.key === 'service') return s.qaService;
       if (action.key === 'controls') return s.qaControls;
       if (action.key === 'voice') return 'Ask by voice';
+      if (action.key === 'errorLogs') return s.qaViewErrorLogs || 'View Error Logs';
       return '';
     case 'viewDetails':
       return `View details for machine`;
@@ -118,7 +127,7 @@ function actionToChatInput(action: Action, ctx: ChatContext): string {
 function loadingTextFor(action: Action, s: ReturnType<typeof t>): string {
   switch (action.type) {
     case 'quick':
-      if (action.key === 'myMachines' || action.key === 'offline') return s.loadingMachines;
+      if (action.key === 'myMachines') return s.loadingMachines;
       if (action.key === 'status') return s.loadingStatus;
       if (action.key === 'service') return s.loadingService;
       if (action.key === 'controls') return s.loadingDetails;
@@ -142,7 +151,11 @@ function loadingTextFor(action: Action, s: ReturnType<typeof t>): string {
   }
 }
 
-export function dispatch(action: Action, ctx: ChatContext): DispatchResult {
+export function dispatch(
+  action: Action,
+  ctx: ChatContext,
+  auth?: DispatchAuth,
+): DispatchResult {
   const s = t(ctx.lang);
 
   // Local-only actions that don't need the webhook (pure UI state transitions).
@@ -185,7 +198,7 @@ export function dispatch(action: Action, ctx: ChatContext): DispatchResult {
     loadingMessage: loadingMsg,
     run: async () => {
       try {
-        const response = await callAssistant(chatInput);
+        const response = await callAssistant(chatInput, auth);
         const { messages, contextPatch } = mapResponse(response, chatInput);
         return { messages, contextPatch };
       } catch {
@@ -298,10 +311,10 @@ export function defaultSuggestedActions(lang: Language): SuggestedAction[] {
   const s = t(lang);
   return [
     { id: 'my-machines', label: s.qaMyMachines, payload: s.qaMyMachines, icon: 'snow' },
-    { id: 'offline-machines', label: s.qaOffline, payload: s.qaOffline, icon: 'wifi-off' },
     { id: 'machine-status', label: s.qaStatus, payload: s.qaStatus, icon: 'alert-triangle' },
     { id: 'service-request', label: s.qaService, payload: s.qaService, icon: 'wrench' },
     { id: 'control-machine', label: s.qaControls, payload: s.qaControls, icon: 'sliders' },
     { id: 'voice-input', label: s.qaVoice, payload: s.qaVoice, icon: 'mic' },
+    { id: 'error-logs', label: s.qaViewErrorLogs || 'View Error Logs', payload: s.qaViewErrorLogs || 'View Error Logs', icon: 'shield-exclamation' },
   ];
 }

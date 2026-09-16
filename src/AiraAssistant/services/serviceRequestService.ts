@@ -1,6 +1,6 @@
 import type { ServiceRequest, ServiceDraft } from '../types';
 
-// Service requests will now be handled through n8n webhook
+// Service requests will  be handled through n8n webhook
 // The actual implementation will be handled by the API service
 
 export function createServiceRequest(draft: ServiceDraft): ServiceRequest {

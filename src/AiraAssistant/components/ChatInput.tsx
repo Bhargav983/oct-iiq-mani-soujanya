@@ -22,6 +22,7 @@ export function ChatInput({
   onQuickReply,
   onVoice,
   onLangChange,
+  voiceDockOverride = null,
 }: {
   lang: Language;
   disabled: boolean;
@@ -31,6 +32,8 @@ export function ChatInput({
   onQuickReply: (action: SuggestedAction) => void;
   onVoice: () => void;
   onLangChange: (l: Language) => void;
+  /** When set, replaces the text input row with the inline morphing voice dock. */
+  voiceDockOverride?: React.ReactNode;
 }) {
   const s = t(lang);
   const [text, setText] = useState('');
@@ -140,7 +143,7 @@ export function ChatInput({
         <QuickReplyBar actions={suggestedActions} disabled={disabled} onSelect={onQuickReply} />
         <div className="aira-input-box-wrapper position-relative p-3">
           {/* Mention popover */}
-          {showMentionPopover && mentionItems.length > 0 && (
+          {showMentionPopover && mentionItems.length > 0 && !voiceDockOverride && (
             <div className="position-relative">
               <div className="aira-mention-popover">
                 {mentionQuery && (
@@ -185,6 +188,11 @@ export function ChatInput({
               </div>
             </div>
           )}
+          {voiceDockOverride ? (
+            /* Mode A: active manual voice session — morph the composer into
+               the inline voice dock instead of the text input row. */
+            voiceDockOverride
+          ) : (
           <InputGroup>
             <Button
               className={isRtl ? 'rounded-end-pill d-flex align-items-center justify-content-center' : 'rounded-start-pill d-flex align-items-center justify-content-center'}
@@ -200,6 +208,16 @@ export function ChatInput({
               aria-pressed={dictation.listening}
             >
               <i className={dictation.listening ? 'bi bi-stop-fill' : 'bi bi-mic-fill'} />
+            </Button>
+            <Button
+              variant="light"
+              className="aira-voice-mode-trigger d-flex align-items-center justify-content-center"
+              style={{ width: 48, borderLeft: 'none', borderRight: 'none', borderRadius: 0 }}
+              onClick={onVoice}
+              disabled={disabled || !voiceSupported}
+              aria-label={s.askByVoice}
+            >
+              <i className="bi bi-soundwave" style={{ color: '#1A83B1' }} />
             </Button>
             <Dropdown align={isRtl ? 'end' : 'start'} className="aira-voice-dropdown">
               <Dropdown.Toggle
@@ -250,18 +268,12 @@ export function ChatInput({
               <i className="bi bi-send-fill" />
             </Button>
           </InputGroup>
-          <div className="d-flex align-items-center justify-content-between px-2 pt-2 small">
-            <span className="text-muted text-truncate">{dictation.listening ? (dictation.interimText || 'Listening...') : dictation.errorMessage}</span>
-            <button
-              type="button"
-              className="aira-voice-mode-trigger"
-              onClick={onVoice}
-              disabled={disabled || !voiceSupported}
-              aria-label={s.askByVoice}
-            >
-              <i className="bi bi-soundwave me-1" /> Voice mode
-            </button>
-          </div>
+          )}
+          {(dictation.listening || dictation.errorMessage) && (
+            <div className="d-flex align-items-center px-2 pt-2 small">
+              <span className="text-muted text-truncate">{dictation.listening ? (dictation.interimText || 'Listening...') : dictation.errorMessage}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

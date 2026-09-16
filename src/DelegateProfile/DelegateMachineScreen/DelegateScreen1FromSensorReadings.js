@@ -1507,7 +1507,7 @@ useEffect(() => {
         {/* Refresh status toast */}
         {refreshStatus.message && (
           <div className={`refresh-status-toast ${refreshStatus.success ? 'success' : 'error'}`}>
-            {refreshStatus.message}
+            <span style={{ color: "#28a745", fontWeight: 600 }}>{refreshStatus.message}</span>
           </div>
         )}
 

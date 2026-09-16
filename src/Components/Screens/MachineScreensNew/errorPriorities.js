@@ -1,6 +1,7 @@
+
 export const ERROR_PRIORITIES = {
   // CRITICAL (Blocking)
-  2: "critical", 20: "critical",
+  2: "CRITICAL", 20: "CRITICAL",
   // HIGH (Blocking)
   1: "HIGH", 3: "HIGH", 4: "HIGH", 5: "HIGH", 7: "HIGH", 8: "HIGH", 9: "HIGH",
   // MEDIUM (Blocking)
@@ -10,18 +11,39 @@ export const ERROR_PRIORITIES = {
 };
 
 /**
- * Checks if a given active alarm code should block user controls.
- * Returns true only for MEDIUM, HIGH, and CRITICAL errors.
+ * Checks if a given single error code should block user controls.
  */
-export const shouldBlockControls = (alarmOccurred) => {
-  if (!alarmOccurred || alarmOccurred === "0") return false;
+export const shouldBlockCode = (errCode) => {
+  if (!errCode || errCode === "0") return false;
+  const code = parseInt(errCode, 10);
+  const priority = ERROR_PRIORITIES[code];
+  return priority === "MEDIUM" || priority === "HIGH" || priority === "CRITICAL";
+};
+
+/**
+ * Evaluates an array or collection of active error codes.
+ * Returns true if ANY active error is of MEDIUM, HIGH, or CRITICAL priority.
+ */
+export const shouldBlockControls = (activeCodes) => {
+  if (!activeCodes) return false;
   
-  // Parse the alarm code (handle string or numeric codes)
-  const errorCode = parseInt(alarmOccurred, 10);
-  const priority = ERROR_PRIORITIES[errorCode];
-  
-  // Only block if priority is MEDIUM, HIGH, or CRITICAL (case-insensitive check)
-  if (!priority) return false;
-  const upperPriority = priority.toUpperCase();
-  return upperPriority === "MEDIUM" || upperPriority === "HIGH" || upperPriority === "CRITICAL";
+  // Handle single code (string or number)
+  if (typeof activeCodes === 'string' || typeof activeCodes === 'number') {
+    return shouldBlockCode(activeCodes);
+  }
+
+  // Handle array of codes
+  if (Array.isArray(activeCodes)) {
+    if (activeCodes.length === 0) return false;
+    return activeCodes.some(code => shouldBlockCode(code));
+  }
+
+  return false;
+};
+
+/**
+ * Determines if there is any blocking error among active codes.
+ */
+export const hasBlockingError = (codes) => {
+  return shouldBlockControls(codes);
 };

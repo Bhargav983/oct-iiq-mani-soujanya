@@ -72,11 +72,11 @@ export type Action =
 
 export type QuickActionKey =
   | 'myMachines'
-  | 'offline'
   | 'status'
   | 'service'
   | 'controls'
-  | 'voice';
+  | 'voice'
+  | 'errorLogs';
 
 export type MessageKind =
   | 'text'
@@ -99,6 +99,7 @@ export type MessageKind =
   | 'machineDetailsCard'
   | 'controlMachineCard'
   | 'serviceRequestForm'
+  | 'errorLogs'
 
   | 'loading'
   | 'error';
@@ -142,7 +143,7 @@ export type ChatContext = {
   lastRequestId: string | null;
 };
 
-export type VoiceState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'ERROR';
+export type VoiceState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SYNTHESIZING' | 'SPEAKING' | 'ERROR';
 
 export type VoiceSocketState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
 
@@ -152,6 +153,19 @@ export interface STTTranscriptEvent {
   confidence?: number;
 }
 
+/**
+ * Structural shape of the authenticated identity threaded through the
+ * voice pipeline. Kept local to `types.ts` (instead of importing
+ * `AuthParamsInput` from `services/api.ts`) to avoid a
+ *   types.ts -> api.ts -> types.ts
+ * import cycle. `AuthParamsInput` from `services/api.ts` is structurally
+ * compatible with this interface.
+ */
+export interface VoiceAuthParams {
+  userId?: string;
+  companyId?: string;
+}
+
 export interface VoiceSocketConfig {
   url: string;
   sampleRate: 16000;
@@ -159,4 +173,27 @@ export interface VoiceSocketConfig {
   onError?: (error: string) => void;
   onStateChange?: (state: VoiceSocketState) => void;
   reconnectDelayMs?: number;
+  /**
+   * Authenticated identity injected into the WebSocket handshake. Sourced
+   * from React <AuthContext /> via the `VoiceAssistantProvider` — sent in
+   * the initial setup frame so the STT server can attribute transcripts
+   * to the right customer/company even before any audio is streamed.
+   */
+  auth?: VoiceAuthParams;
+}
+export interface ErrorLogItem {
+  id: string | number;
+  error_code: string | number;
+  description: string;
+  priority: 'low' | 'medium' | 'high' | 'critical' | 'HIGH' | 'MEDIUM' | 'LOW' | 'CRITICAL';
+  timestamp: string;
+}
+
+export interface ErrorLogsCardData {
+  pcb_serial_number: string;
+  is_online: boolean;
+  total_error_count: number;
+  has_critical_errors: boolean;
+  critical_error_count: number;
+  top_critical_errors: ErrorLogItem[];
 }

@@ -1,7 +1,9 @@
 import { Button } from 'react-bootstrap';
+import { useNavigate } from 'react-router-dom';
 import type { Language } from '../types';
 import { t } from '../i18n/strings';
 import { LanguageSelector } from './LanguageSelector';
+import { useVoiceAssistantContext } from '../context/VoiceAssistantContext';
 import air2oLogo from './Assets/octane-logo.svg';
 
 export function AssistantHeader({
@@ -14,12 +16,51 @@ export function AssistantHeader({
   onNewChat: () => void;
 }) {
   const s = t(lang);
+  const navigate = useNavigate();
+  const { closeChat } = useVoiceAssistantContext();
+
+  /**
+   * Safely exits the chatbot: halts any in-flight TTS playback, pauses
+   * MicVAD, disconnects the STT WebSocket, re-arms the background "Hey Aira"
+   * wake-word listener, then navigates back.
+   */
+  function handleBack() {
+    // Stop any TTS still playing before tearing the session down.
+    window.speechSynthesis?.cancel();
+    const voiceWindow = window as Window & {
+      __airaVoiceAudioSources__?: Set<AudioBufferSourceNode>;
+    };
+    voiceWindow.__airaVoiceAudioSources__?.forEach((source) => {
+      try { source.stop(); } catch { /* already stopped */ }
+    });
+    voiceWindow.__airaVoiceAudioSources__?.clear();
+
+    closeChat();
+    // Prefer history-back so users return to wherever they came from; fall
+    // back to the machine dashboard if there is no in-app history.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/machinescreen1');
+    }
+  }
+
   return (
     <header
       className="sticky-top border-bottom bg-white aira-glass"
       style={{ backdropFilter: 'blur(8px)', background: 'rgba(255,255,255,0.9)', zIndex: 1020 }}
     >
       <div className="mx-auto d-flex align-items-center gap-2 ps-2 pe-3 py-2" style={{ maxWidth: '42rem' }}>
+        <Button
+          variant="light"
+          size="sm"
+          className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 border-0"
+          style={{ width: 36, height: 36, color: '#1A83B1', background: 'rgba(26, 131, 177, 0.08)' }}
+          onClick={handleBack}
+          aria-label="Back to dashboard"
+        >
+          <i className="bi bi-arrow-left" style={{ fontSize: '1.1rem' }} />
+        </Button>
         <div
         className="d-flex align-items-center justify-content-center rounded-3 p-1"
         style={{

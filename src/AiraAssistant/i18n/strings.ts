@@ -23,6 +23,7 @@ type Dict = {
   qaService: string;
   qaControls: string;
   qaVoice: string;
+  qaViewErrorLogs: string;
   online: string;
   offline: string;
   attention: string;
@@ -130,11 +131,12 @@ export const STRINGS: Record<Language, Dict> = {
     voiceUnsupported: "Voice input isn't supported on this browser. You can type instead.",
     listen: 'Listen',
     qaMyMachines: 'My Machines',
-    qaOffline: 'Check Offline Machines',
+    qaOffline: 'Offline',
     qaStatus: 'Check Machine Status',
     qaService: 'Raise Service Request',
     qaControls: 'Control Machine',
     qaVoice: 'Ask by Voice',
+    qaViewErrorLogs: 'View Error Logs',
     online: 'Online',
     offline: 'Offline',
     attention: 'Attention Needed',
@@ -240,11 +242,12 @@ export const STRINGS: Record<Language, Dict> = {
     voiceUnsupported: 'الإدخال الصوتي غير مدعوم على هذا المتصفح. يمكنك الكتابة بدلاً من ذلك.',
     listen: 'استمع',
     qaMyMachines: 'أجهزتي',
-    qaOffline: 'فحص الأجهزة غير المتصلة',
+    qaOffline: 'غير متصل',
     qaStatus: 'فحص حالة الجهاز',
     qaService: 'طلب صيانة',
     qaControls: 'تحكم بالجهاز',
     qaVoice: 'اسأل بالصوت',
+    qaViewErrorLogs: 'عرض سجلات الأخطاء',
     online: 'متصل',
     offline: 'غير متصل',
     attention: 'يحتاج اهتمام',
@@ -350,11 +353,12 @@ export const STRINGS: Record<Language, Dict> = {
     voiceUnsupported: 'इस ब्राउज़र पर वॉइस इनपुट समर्थित नहीं है। आप टाइप कर सकते हैं।',
     listen: 'सुनें',
     qaMyMachines: 'मेरी मशीनें',
-    qaOffline: 'ऑफलाइन मशीनें जांचें',
+    qaOffline: 'ऑफलाइन',
     qaStatus: 'मशीन स्थिति जांचें',
     qaService: 'सर्विस अनुरोध',
     qaControls: 'मशीन नियंत्रण',
     qaVoice: 'आवाज से पूछें',
+    qaViewErrorLogs: 'त्रुटि लॉग देखें',
     online: 'ऑनलाइन',
     offline: 'ऑफलाइन',
     attention: 'ध्यान दें',
