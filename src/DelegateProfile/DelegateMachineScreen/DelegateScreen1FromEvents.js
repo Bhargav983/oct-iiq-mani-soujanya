@@ -1519,7 +1519,7 @@ const cancelCommandConfirmation = () => {
         )}
 
         {sensorData.errorFlag === "1" && shouldBlockControls(sensorData.activeErrorCodes || sensorData.errorCode) && (
-          <div className="screen1-error-message">⚠️ System Error Detected - Control Disabled</div>
+          <div className="screen1-error-message">⚠️ System Error Detected</div>
         )}
 
         {sensorData.hvacBusy === "1" && !processing.status && (

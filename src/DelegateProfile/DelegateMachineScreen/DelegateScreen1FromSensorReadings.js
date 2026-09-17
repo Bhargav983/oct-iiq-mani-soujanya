@@ -1772,7 +1772,7 @@ useEffect(() => {
         )}
 
         {sensorData.errorFlag == "1" && (
-          <div className="screen1-error-message">⚠️ System Error Detected - Control Disabled</div>
+          <div className="screen1-error-message">⚠️ System Error Detected</div>
         )}
 
         {/* ✅ NEW: Alarm banner */}
