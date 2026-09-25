@@ -121,7 +121,11 @@ export function reduceEventsToDeviceSnapshot(
   const batch3 = latestByBatch["Batch 3"]?.parsed || {};
   const flags = decodeDeviceStatus(batch3.DS);
   const errorCode = scaleEventValue("EC", batch3.EC);
-  const currentAlarmCount = errorCode && errorCode !== 0 ? 1 : 0;
+  
+  const batch3Payload = latestByBatch["Batch 3"]?.payload || "";
+  const leuMatch = batch3Payload.match(/LEU:(\d+)/);
+  const currentAlarmCount = leuMatch ? parseInt(leuMatch[1], 10) : (errorCode && errorCode !== 0 ? 1 : 0);
+  
   const newestEvent = events[0] || null;
   const isOnline = Boolean(connectivity?.is_online) || isFreshEvent(newestEvent, now);
   const asValue = (value) => (value === null || value === undefined ? null : { value: String(value) });

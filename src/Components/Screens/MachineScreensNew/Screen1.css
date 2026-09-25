@@ -1807,6 +1807,7 @@ border-top-right-radius: 50px; */
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  top: calc(35px + env(safe-area-inset-top, 0px));
   padding: 12px 24px;
   border-radius: 12px;
   box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);

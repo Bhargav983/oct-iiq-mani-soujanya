@@ -1,3 +1,4 @@
+import { parseRawPayload, reduceEventsToLiveSnapshot } from '../iotPayloadParser';
 import React, { useState, useEffect, useContext, useRef, useCallback } from "react";
 import AIROlogo from "../Images/AIRO.png";
 import greenAire from "../Images/greenAire.png";
@@ -132,7 +133,36 @@ const [allDevicesData, setAllDevicesData] = useState([]);
   // keep it in sync with state
 
   // Instant optimistic localStorage sync upon service item selection change
+  
+  // Instant IoT event parsing matching backend tasks.py logic
+  const fetchLiveIoTDataDirect = async (pcb) => {
+    try {
+      const res = await fetch(`https://mdata.air2o.net/events/`);
+      if (res.ok) {
+        const allEvents = await res.json();
+        const liveSnapshot = reduceEventsToLiveSnapshot(allEvents, pcb);
+        if (liveSnapshot && typeof setSensorData === 'function') {
+          setSensorData(liveSnapshot);
+          localStorage.setItem("active_machine_parameters", JSON.stringify(liveSnapshot));
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn("Direct IoT fetch fallback:", e);
+    }
+    return false;
+  };
+  
+
+  // Wire real-time IoT event parser on service item switch / load
   useEffect(() => {
+    const pcb = selectedService?.pcb_serial_number || activePCBRef?.current;
+    if (pcb && typeof fetchLiveIoTDataDirect === 'function') {
+      fetchLiveIoTDataDirect(pcb);
+    }
+  }, [selectedService]);
+  
+useEffect(() => {
     if (selectedService) {
       try {
         const pcb = selectedService?.pcb_serial_number || "";
