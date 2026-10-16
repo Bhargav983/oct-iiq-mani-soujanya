@@ -1,4 +1,13 @@
 import { WakeWordEngine } from 'openwakeword-wasm-browser';
+import * as ort from 'onnxruntime-web';
+
+// Configure onnxruntime-web WebAssembly backend globally before engine instantiation
+if (typeof window !== 'undefined') {
+  ort.env.wasm.wasmPaths = '/vad/';
+  ort.env.wasm.numThreads = 1;
+  ort.env.wasm.proxy = false;
+  ort.env.wasm.simd = false; // Set to false to avoid WebKit WASM allocation limits
+}
 
 export type WakeWordServiceOptions = {
   keywordPath: string;
@@ -13,15 +22,13 @@ export type WakeWordServiceOptions = {
  *
  * The engine manages its own mic capture (AudioWorklet) and ONNX inference;
  * this service only handles lifecycle, event wiring and level metering.
- * Audio never leaves the device — the only network use is the browser
- * fetching the ONNX models.
  */
 export class WakeWordService {
   private readonly options: WakeWordServiceOptions;
   private engine: WakeWordEngine | null = null;
   private animationFrame: number | null = null;
   private active = false;
-  /** True while start() is between its async boundaries (engine init, getUserMedia, AudioContext). */
+  /** True while start() is between its async boundaries. */
   private initializing = false;
   /** Set by stop() so start() bails out cleanly at the next await boundary. */
   private stopRequested = false;
@@ -44,26 +51,36 @@ export class WakeWordService {
     this.initializing = true;
 
     try {
-      // Derive keyword name from the model file, e.g. '.../hey_aira.onnx' -> 'hey_aira'
+      // Re-affirm WASM path configuration right before loading
+      ort.env.wasm.wasmPaths = '/vad/';
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+
+      // Derive keyword name from the model file: '.../hey_aira.onnx' -> 'hey_aira'
       const keywordName =
         this.options.keywordPath.split('/').pop()?.replace(/\.onnx$/i, '') || 'hey_aira';
       const baseAssetUrl = this.options.modelPath.replace(/\/+$/, '') || '/openwakeword/models';
 
       console.log(`🟣 [WakeWord] Creating WakeWordEngine for keyword: ${keywordName}`);
+      
       const engine = new WakeWordEngine({
         keywords: [keywordName],
-        // Map custom keyword -> actual .onnx file inside baseAssetUrl
-        modelFiles: { [keywordName]: `${keywordName}.onnx` },
+        modelFiles: {
+          [keywordName]: `${keywordName}.onnx`,
+          melspectrogram: 'melspectrogram.onnx',
+          embedding: 'embedding_model.onnx',
+        },
         baseAssetUrl,
         detectionThreshold: 0.5,
         cooldownMs: 2000,
       });
 
-      // Event wiring (the engine uses an emitter, not constructor callbacks)
+      // Event wiring
       engine.on('detect', () => {
         console.log('🟢 [WakeWord] DETECTED "HEY AIRA"');
         this.options.onWakeWord();
       });
+      
       engine.on('error', (payload: unknown) => {
         const message = payload instanceof Error
           ? payload.message
@@ -72,8 +89,10 @@ export class WakeWordService {
         this.options.onError?.(message);
       });
 
+      console.log('🟣 [WakeWord] Calling engine.load()...');
       await engine.load();
       console.log('🟢 [WakeWord] Engine loaded successfully');
+
       if (this.stopRequested) {
         console.log('🟣 [WakeWord] Stop requested during load — aborting start');
         await engine.stop();
@@ -88,7 +107,9 @@ export class WakeWordService {
     } catch (error: unknown) {
       console.error('🔴 [WakeWord] start() threw — full error:', error);
       await this.stop();
-      throw error;
+      // Handle fallback mode instead of crashing consumer contexts
+      this.fallbackMode = true;
+      this.options.onError?.('WakeWord could not initialize on this device backend.');
     } finally {
       this.initializing = false;
     }
@@ -99,11 +120,9 @@ export class WakeWordService {
       active: this.active,
       initializing: this.initializing,
     });
-    // Flag any in-flight start() so it aborts at its next await boundary.
     this.stopRequested = true;
     this.active = false;
 
-    // If start() is still running, wait for it to unwind before tearing down.
     while (this.initializing) {
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
@@ -112,8 +131,6 @@ export class WakeWordService {
     this.animationFrame = null;
 
     try {
-      // Engine stop() releases the AudioWorklet, closes the AudioContext and
-      // stops the mic tracks it acquired internally.
       await this.engine?.stop();
     } catch (error) {
       console.warn('⚠️ [WakeWord] Engine stop ignored:', error);

@@ -9,8 +9,16 @@ import { playTTS, ttsService } from '../services/ttsService';
 import { getAuthContext, type AuthParams } from '../utils/useAuth';
 
 const SAMPLE_RATE = 16000;
-const VAD_ASSET_PATH = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/';
-const ONNX_WASM_PATH = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+/** True when the site runs inside the native iOS app's WebView. */
+function isIosNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as any;
+  return Boolean(w.__AIRA_IOS_APP__)
+    || (Boolean(w.ReactNativeWebView) && /iPad|iPhone|iPod/.test(navigator.userAgent));
+}
+
+const VAD_ASSET_PATH = '/vad/';
+const ONNX_WASM_PATH = '/vad/';
 const DEFAULT_STT_URL = 'wss://n8ncustomer.air2o.net/ws/stt';
 const WAKE_WORD_KEYWORD_PATH = process.env.REACT_APP_OPENWAKEWORD_KEYWORD_PATH || '/openwakeword/models/hey_aira.onnx';
 const WAKE_WORD_MODEL_PATH = process.env.REACT_APP_OPENWAKEWORD_MODEL_PATH || '/openwakeword/models/';
@@ -588,13 +596,23 @@ export function useVoiceAssistant(
     updateState('PROCESSING');
   };
   //Pass stable useCallback wrappers into useMicVAD
-  console.log('🧠 [VAD:LIFECYCLE] Creating useMicVAD instance');
+  console.log('🧠 [VAD:LIFECYCLE] Creating useMicVAD instance [build: local-vad-v100]', {
+    iosApp: isIosNativeApp(),
+    flag: (window as any).__AIRA_IOS_APP__,
+    rnWebView: Boolean((window as any).ReactNativeWebView),
+  });
   const vad = useMicVAD({
     startOnLoad: false,
     model: 'v5',
     getStream: getMicStream,
     baseAssetPath: VAD_ASSET_PATH,
     onnxWASMBasePath: ONNX_WASM_PATH,
+    ortConfig: (ort: any) => {
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+      ort.env.wasm.simd = false; // Prevents heavy SIMD continuous page allocation on iOS
+      ort.env.wasm.wasmPaths = '/vad/';
+    },
     onSpeechStart: useCallback(() => onSpeechStartRef.current(), []),
     onFrameProcessed: useCallback((p: any, f: Float32Array) => onFrameProcessedRef.current(p, f), []),
     onSpeechEnd: useCallback(() => onSpeechEndRef.current(), []),
@@ -642,6 +660,12 @@ export function useVoiceAssistant(
 
   const armWakeWord = useCallback(async () => {
     if (isUnmountedRef.current) return;
+    // iOS app WebView: running the wake-word ONNX runtime next to the VAD
+    // exhausts WASM memory. Use tap-to-talk there instead.
+    if (isIosNativeApp()) {
+      console.log('🟣 [WakeWord] Disabled inside the iOS app (tap-to-talk only)');
+      return;
+    }
     // Synchronous lock check — runs before ANY async setup. Prevents VAD
     // lifecycle ticks from re-entering while WakeWordEngine.initialize()
     // is still in flight (initializing: true).
