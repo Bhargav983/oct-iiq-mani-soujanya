@@ -10,6 +10,8 @@ import {
   useVoiceAssistant,
 } from '../hooks/useVoiceAssistant';
 import type { AuthParams } from '../utils/useAuth';
+import { isIosApp } from '../services/nativeVoice';
+import { NativeVoiceEngine } from './NativeVoiceEngine';
 
 export interface VoiceSnapshot {
   supported: boolean;
@@ -33,7 +35,7 @@ export interface VoiceEngineHandle {
   cancelPlayback: () => void;
 }
 
-interface VoiceEngineProps {
+export interface VoiceEngineProps {
   lang: Language;
 
   onResult: (
@@ -90,7 +92,7 @@ interface VoiceEngineProps {
  * Once mounted, keep it mounted for the rest of the page's life rather than
  * mounting/unmounting it repeatedly.
  */
-export const VoiceEngine = forwardRef<
+const BrowserVoiceEngine = forwardRef<
   VoiceEngineHandle,
   VoiceEngineProps
 >(function VoiceEngine(
@@ -161,4 +163,8 @@ export const VoiceEngine = forwardRef<
   ]);
 
   return null;
+});
+
+export const VoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>(function VoiceEngine(props, ref) {
+  return isIosApp() ? <NativeVoiceEngine {...props} ref={ref} /> : <BrowserVoiceEngine {...props} ref={ref} />;
 });

@@ -58,6 +58,9 @@ export function isArabicText(text: string): boolean {
 class TTSService {
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
+  private finishPlayback: (() => void) | null = null;
+  private generation = 0;
+  private synthesis: AbortController | null = null;
 
   /**
    * Play TTS audio for the given text.
@@ -85,6 +88,9 @@ class TTSService {
   ): Promise<void> {
     // Stop any currently playing audio
     this.stopCurrentAudio();
+    const generation = this.generation;
+    const synthesis = new AbortController();
+    this.synthesis = synthesis;
 
     try {
       console.log('🔊 [TTS] Converting text to speech:', text.substring(0, 50) + '...');
@@ -101,6 +107,7 @@ class TTSService {
         try {
           console.log('🌙 [TTS] Arabic script detected — routing to Nabra endpoint');
           const nabraResponse = await fetch(NABRA_TTS_URL, {
+            signal: synthesis.signal,
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -113,10 +120,12 @@ class TTSService {
             );
           }
           const nabraBlob = await nabraResponse.blob();
+          if (generation !== this.generation) return;
           console.log('🌙 [TTS] Nabra returned audio blob:', nabraBlob.size, 'bytes');
           await this.playAudioBlob(nabraBlob, onPlaybackStart);
           return;
         } catch (nabraError) {
+          if (generation !== this.generation) return;
           // Nabra is best-effort. Log and fall through to Kokoro so the
           // user still hears a reply, even if it is in a non-native voice.
           console.error(
@@ -131,6 +140,7 @@ class TTSService {
       // authRef in useVoiceAssistant so the TTS server sees the same
       // customer/company as the STT handshake and the n8n chat webhook.
       const response = await fetch(KOKORO_TTS_URL, {
+        signal: synthesis.signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,6 +162,7 @@ class TTSService {
 
       // Convert response to audio blob
       const audioBlob = await response.blob();
+      if (generation !== this.generation) return;
       console.log('🔊 [TTS] Received audio blob:', audioBlob.size, 'bytes');
 
       // Hand off to the shared audio-element / Promise lifecycle.
@@ -160,6 +171,7 @@ class TTSService {
       await this.playAudioBlob(audioBlob, onPlaybackStart);
 
     } catch (error) {
+      if (generation !== this.generation) return;
       console.error('🔊 [TTS] Failed to play TTS:', error);
       this.cleanupAudio();
       throw error;
@@ -202,6 +214,8 @@ class TTSService {
     // caused updateState('IDLE') to overwrite SPEAKING within milliseconds,
     // so the UI never showed the speaking phase or the Stop-TTS button.
     return new Promise<void>((resolve, reject) => {
+      this.finishPlayback = resolve;
+      const audio = this.currentAudio!;
       this.currentAudio!.onended = () => {
         console.log('🔊 [TTS] Audio playback completed');
         this.cleanupAudio();
@@ -217,11 +231,13 @@ class TTSService {
       // Start playback
       this.currentAudio!.play()
         .then(() => {
+          if (this.currentAudio !== audio) return;
           console.log('🔊 [TTS] Audio playback started');
           // Synthesis is complete — actual audible playback has begun.
           onPlaybackStart?.();
         })
         .catch((playError) => {
+          if (this.currentAudio !== audio) return;
           console.error('🔊 [TTS] Failed to start playback:', playError);
           this.cleanupAudio();
           reject(playError);
@@ -233,17 +249,19 @@ class TTSService {
    * Stop any currently playing audio
    */
   public stopCurrentAudio(): void {
-    if (this.currentAudio) {
-      console.log('🔊 [TTS] Stopping current audio playback');
-      this.currentAudio.pause();
-      this.currentAudio.currentTime = 0;
-    }
+    ++this.generation;
+    this.synthesis?.abort();
+    this.synthesis = null;
+    const finish = this.finishPlayback;
+    this.cleanupAudio();
+    finish?.();
   }
 
   /**
    * Clean up audio resources
    */
   private cleanupAudio(): void {
+    this.finishPlayback = null;
     if (this.currentAudio) {
       this.currentAudio.onended = null;
       this.currentAudio.onerror = null;

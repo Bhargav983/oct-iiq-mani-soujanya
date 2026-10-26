@@ -77,6 +77,7 @@ export function AssistantPage() {
   // the chat message flow and the listening overlay mirrors the shared state.
   const {
     registerResultHandler,
+    setVoiceLanguage,
     registerSnapshotHandler,
     activateVoice,
     deactivateVoice,
@@ -94,6 +95,7 @@ export function AssistantPage() {
   } = useVoiceAssistantContext();
   const auth = useMemo(() => ({ userId, companyId }), [userId, companyId]);
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(IDLE_VOICE_SNAPSHOT);
+  useEffect(() => { setVoiceLanguage(lang); }, [lang, setVoiceLanguage]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 

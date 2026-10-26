@@ -74,6 +74,8 @@ export class WakeWordService {
         detectionThreshold: 0.5,
         cooldownMs: 2000,
       });
+      // Retain ownership across asynchronous model loading and cancellation.
+      this.engine = engine;
 
       // Event wiring
       engine.on('detect', () => {
@@ -95,18 +97,20 @@ export class WakeWordService {
 
       if (this.stopRequested) {
         console.log('🟣 [WakeWord] Stop requested during load — aborting start');
-        await engine.stop();
         return;
       }
 
       // Engine start() acquires the mic + AudioWorklet internally.
       await engine.start();
-      this.engine = engine;
+      if (this.stopRequested) return;
       this.active = true;
       console.log('🟢 [WakeWord] LISTENING FOR "HEY AIRA"');
     } catch (error: unknown) {
       console.error('🔴 [WakeWord] start() threw — full error:', error);
-      await this.stop();
+      // stop() waits for initializing=false; calling it here would deadlock.
+      try { await this.engine?.stop(); } catch { /* preserve initialization error */ }
+      this.engine = null;
+      this.active = false;
       // Handle fallback mode instead of crashing consumer contexts
       this.fallbackMode = true;
       this.options.onError?.('WakeWord could not initialize on this device backend.');

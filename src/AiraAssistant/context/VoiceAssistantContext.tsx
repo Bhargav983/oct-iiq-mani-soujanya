@@ -22,6 +22,7 @@ type SnapshotHandler = (snapshot: VoiceSnapshot) => void;
 export type VoiceActivationSource = 'wake_word' | 'manual';
 
 export interface VoiceAssistantContextValue {
+  setVoiceLanguage: (language: Language) => void;
   /** True while MicVAD + STT socket session is running (user spoke "Hey Aira" or tapped mic). */
   isVoiceActive: boolean;
   /**
@@ -141,6 +142,7 @@ interface VoiceAssistantProviderProps {
  * is what makes the MicVAD create/destroy race impossible (see VoiceEngine.tsx).
  */
 export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistantProviderProps) {
+  const [voiceLanguage, setVoiceLanguage] = useState<Language>(lang);
   console.log('🔍 [Debug] VoiceAssistantProvider mounted');
   // PRIMARY source of truth: the application's React <AuthContext />. The
   // AiraAssistant pipeline no longer relies on static constants or
@@ -279,6 +281,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
 
   const value = useMemo<VoiceAssistantContextValue>(
     () => ({
+      setVoiceLanguage,
       isVoiceActive,
       voiceActivationSource,
       wakeWordArmed,
@@ -325,7 +328,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
           listening; once deactivated, the wake word re-arms instead. */}
       <VoiceEngine
         ref={voiceRef}
-        lang={lang}
+        lang={voiceLanguage}
         onResult={handleVoiceResult}
         onSnapshot={handleSnapshot}
         onWakeWordDetected={openChatFromWakeWord}
