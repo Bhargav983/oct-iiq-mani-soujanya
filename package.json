@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "@ricky0123/vad-react": "^0.0.36",
-    "onnxruntime-web": "1.17.0",
+    "onnxruntime-web": "1.23.2",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -14,7 +14,7 @@
     "bootstrap-icons": "^1.13.1",
     "firebase": "^11.10.0",
     "notistack": "^3.0.2",
-    "openwakeword-wasm-browser": "^0.1.1",
+    "openwakeword-wasm-browser": "0.1.1",
     "react": "^19.1.0",
     "react-bootstrap": "^2.10.10",
     "react-datepicker": "^8.10.0",
@@ -31,6 +31,11 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "voice:assets": "node scripts/voice-assets.cjs --sync",
+    "voice:check": "node scripts/voice-assets.cjs",
+    "voice:smoke": "node scripts/voice-smoke.cjs",
+    "prestart": "npm run voice:assets",
+    "prebuild": "npm run voice:assets",
     "start": "set GENERATE_SOURCEMAP=false && react-scripts start",
     "build": "set GENERATE_SOURCEMAP=false && react-scripts build",
     "test": "react-scripts test",
@@ -61,6 +66,6 @@
     "typescript": "^4.9.5"
   },
   "overrides": {
-  "onnxruntime-web": "1.17.0"
+  "onnxruntime-web": "1.23.2"
 }
 }

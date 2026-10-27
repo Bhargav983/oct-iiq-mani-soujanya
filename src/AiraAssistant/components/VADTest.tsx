@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { MicVAD } from '@ricky0123/vad-web';
+import { configureVoiceRuntime, voiceAssets } from '../services/voiceRuntime';
 
-const VAD_ASSET_PATH =
-  'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/';
+const VAD_ASSET_PATH = voiceAssets.vadPath;
 
-const ONNX_WASM_PATH =
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+const ONNX_WASM_PATH = voiceAssets.ortPath;
 
 export default function VADTest() {
   const vadRef = useRef<MicVAD | null>(null);
@@ -24,6 +23,7 @@ export default function VADTest() {
 
           baseAssetPath: VAD_ASSET_PATH,
           onnxWASMBasePath: ONNX_WASM_PATH,
+          ortConfig: configureVoiceRuntime,
 
           startOnLoad: false,
 

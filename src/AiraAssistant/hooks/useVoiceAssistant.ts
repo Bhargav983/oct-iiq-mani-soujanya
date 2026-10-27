@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceState } from '../types';
 import { VoiceSocket } from '../services/voiceSocket';
 import { WakeWordService } from '../services/wakeWordService';
+import { configureVoiceRuntime, voiceAssets } from '../services/voiceRuntime';
 import { isVoiceSupported } from '../utils/voiceSupport';
 import { isPublicRoute } from '../utils/publicRoutes';
 import { playTTS, ttsService } from '../services/ttsService';
@@ -17,11 +18,11 @@ function isIosNativeApp(): boolean {
     || (Boolean(w.ReactNativeWebView) && /iPad|iPhone|iPod/.test(navigator.userAgent));
 }
 
-const VAD_ASSET_PATH = '/vad/';
-const ONNX_WASM_PATH = '/vad/';
+const VAD_ASSET_PATH = voiceAssets.vadPath;
+const ONNX_WASM_PATH = voiceAssets.ortPath;
 const DEFAULT_STT_URL = 'wss://n8ncustomer.air2o.net/ws/stt';
-const WAKE_WORD_KEYWORD_PATH = process.env.REACT_APP_OPENWAKEWORD_KEYWORD_PATH || '/openwakeword/models/hey_aira.onnx';
-const WAKE_WORD_MODEL_PATH = process.env.REACT_APP_OPENWAKEWORD_MODEL_PATH || '/openwakeword/models/';
+const WAKE_WORD_KEYWORD_PATH = process.env.REACT_APP_OPENWAKEWORD_KEYWORD_PATH || `${voiceAssets.wakePath}hey_aira.onnx`;
+const WAKE_WORD_MODEL_PATH = process.env.REACT_APP_OPENWAKEWORD_MODEL_PATH || voiceAssets.wakePath;
 
 /** Streams VAD-detected PCM16 to STT and keeps a local OpenWakeWord wake-word listener armed between turns. */
 
@@ -139,6 +140,8 @@ export function useVoiceAssistant(
    * (e.g. a VAD state tick re-firing while engine.initialize() is in flight).
    */
   const wakeWordArmingRef = useRef(false);
+  const wakeWordStoppingRef = useRef<Promise<void> | null>(null);
+  const wakeWordGenerationRef = useRef(0);
   const stateRef = useRef<VoiceState>('IDLE');
   const transcriptRef = useRef('');
   const shouldListenRef = useRef(false);
@@ -191,6 +194,7 @@ export function useVoiceAssistant(
   }, []);
 
   const stopWakeWord = useCallback(async () => {
+    ++wakeWordGenerationRef.current;
     const listener = wakeWordRef.current;
     if (!listener) {
       // Nothing armed (or teardown already in progress) — do NOT call
@@ -199,6 +203,7 @@ export function useVoiceAssistant(
       wakeWordServiceRef.current = null;
       wakeWordArmingRef.current = false;
       setWakeWordEnabled(false);
+      await wakeWordStoppingRef.current;
       return;
     }
     wakeWordRef.current = null;
@@ -206,7 +211,10 @@ export function useVoiceAssistant(
     // Release the synchronous arming lock so a future armWakeWord() can run.
     wakeWordArmingRef.current = false;
     setWakeWordEnabled(false);
-    await listener.stop();
+    const stopping = listener.stop();
+    wakeWordStoppingRef.current = stopping;
+    try { await stopping; }
+    finally { if (wakeWordStoppingRef.current === stopping) wakeWordStoppingRef.current = null; }
   }, []);
 
   const playChime = useCallback(() => {
@@ -607,12 +615,7 @@ export function useVoiceAssistant(
     getStream: getMicStream,
     baseAssetPath: VAD_ASSET_PATH,
     onnxWASMBasePath: ONNX_WASM_PATH,
-    ortConfig: (ort: any) => {
-      ort.env.wasm.numThreads = 1;
-      ort.env.wasm.proxy = false;
-      ort.env.wasm.simd = false; // Prevents heavy SIMD continuous page allocation on iOS
-      ort.env.wasm.wasmPaths = '/vad/';
-    },
+    ortConfig: configureVoiceRuntime,
     onSpeechStart: useCallback(() => onSpeechStartRef.current(), []),
     onFrameProcessed: useCallback((p: any, f: Float32Array) => onFrameProcessedRef.current(p, f), []),
     onSpeechEnd: useCallback(() => onSpeechEndRef.current(), []),
@@ -691,6 +694,12 @@ export function useVoiceAssistant(
       return;
     }
     wakeWordArmingRef.current = true;
+    const generation = wakeWordGenerationRef.current;
+    await wakeWordStoppingRef.current;
+    if (generation !== wakeWordGenerationRef.current || isUnmountedRef.current || shouldListenRef.current) {
+      wakeWordArmingRef.current = false;
+      return;
+    }
     console.log('🔍 [Debug] armWakeWord() function entered', {
       isUnmounted: isUnmountedRef.current,
       supported,
@@ -754,28 +763,32 @@ export function useVoiceAssistant(
       onError: (message) => {
         if (isUnmountedRef.current) return;
         setErrorMessage(message);
+        setWakeWordEnabled(false);
+        void stopWakeWord();
       },
     });
     wakeWordRef.current = listener;
     wakeWordServiceRef.current = listener;
     try {
       await listener.start();
+      if (wakeWordRef.current !== listener || generation !== wakeWordGenerationRef.current) return;
       // start() can return cleanly even when it was aborted mid-flight by a
       // stop() request (the abort path returns instead of throwing). Verify
       // the engine actually reached the active/listening state; if not, treat
-      // as failure and retry via the gesture gate.
+      // as intentional cancellation, without a permission retry.
       if (!listener.isActive) {
         console.warn('🟣 [WakeWord] start() returned but engine is NOT active — treating as aborted');
         if (wakeWordRef.current === listener) wakeWordRef.current = null;
         wakeWordServiceRef.current = null;
         wakeWordArmingRef.current = false;
         setWakeWordEnabled(false);
-        armOnFirstGesture('start aborted during initialization');
+        // Intentional teardown is not a browser permission failure.
         return;
       }
       setWakeWordEnabled(true);
       console.log('🟢 [WakeWord] Wake word armed and listening for "Hey Aira"');
     } catch (error: unknown) {
+      if (wakeWordRef.current !== listener || generation !== wakeWordGenerationRef.current) return;
       console.error('🔴 [WakeWord] armWakeWord caught error:', error);
       if (wakeWordRef.current === listener) wakeWordRef.current = null;
       wakeWordServiceRef.current = null;

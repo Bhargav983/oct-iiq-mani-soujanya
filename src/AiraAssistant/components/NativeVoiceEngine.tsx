@@ -13,8 +13,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   latest.current = props;
   const [snapshot, setSnapshot] = useState(idle);
   const [ready, setReady] = useState(hasNativeVoice);
-  const [enabled, setEnabled] = useState(false);
-  const enabledRef = useRef(false);
+  const wakeBlocked = useRef(false);
   const foreground = useRef(true);
   const mounted = useRef(true);
   const generation = useRef(0);
@@ -23,6 +22,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   const text = useRef('');
   const dictating = useRef(false);
   const busy = useRef(false);
+  const identity = useRef('');
   const armRef = useRef<() => void>(() => {});
   const startRef = useRef<() => void>(() => {});
   const eligible = useCallback(() => foreground.current && !document.hidden && Boolean(latest.current.auth?.userId && latest.current.auth?.companyId && latest.current.currentPathname && !isPublicRoute(latest.current.currentPathname)), []);
@@ -42,7 +42,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   }, [update]);
 
   const arm = useCallback(() => {
-    if (!enabledRef.current || !eligible() || dictating.current || busy.current || session.current || !hasNativeVoice()) return;
+    if (wakeBlocked.current || !eligible() || dictating.current || busy.current || session.current || !hasNativeVoice()) return;
     let detected = false;
     let failed = false;
     const token = generation.current;
@@ -54,6 +54,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
         detected = true;
         session.current?.cancel();
         session.current = null;
+        busy.current = true;
         update({ wakeWordEnabled: false });
         if (latest.current.onWakeWordDetected) latest.current.onWakeWordDetected();
         else startRef.current();
@@ -61,13 +62,12 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
       if (event.event === 'error' && event.error !== 'no-speech' && event.error !== 'aborted') {
         failed = true;
         update({ wakeWordEnabled: false, errorMessage: event.message || event.error || 'Wake phrase recognition failed.' });
-        enabledRef.current = false;
-        setEnabled(false);
+        wakeBlocked.current = true;
       }
       if (event.event === 'end' && !detected) {
         session.current = null;
         update({ wakeWordEnabled: false });
-        if (!failed && enabledRef.current && eligible()) retry.current = setTimeout(() => armRef.current(), 800);
+        if (!failed && !wakeBlocked.current && eligible()) retry.current = setTimeout(() => armRef.current(), 800);
       }
       if (event.event === 'interrupted') cancel();
     });
@@ -99,6 +99,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
 
   const start = useCallback(() => {
     cancel();
+    wakeBlocked.current = false;
     dictating.current = false;
     if (!eligible()) return;
     if (!hasNativeVoice()) {
@@ -136,7 +137,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
       }
       if (event.event === 'interrupted') {
         cancel();
-        update({ errorMessage: 'Voice was interrupted. Tap Retry voice to continue.' });
+        update({ errorMessage: 'Voice was interrupted. Use the microphone to continue.' });
       }
     });
   }, [cancel, eligible, processText, update]);
@@ -166,14 +167,14 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
         if (!event.active) {
           const wasBusy = busy.current;
           cancel();
-          if (wasBusy) update({ errorMessage: 'Voice is paused. Tap Retry voice when you return.' });
+          if (wasBusy) update({ errorMessage: 'Voice is paused. Use the microphone when you return.' });
         }
-        else armRef.current();
+        else { wakeBlocked.current = false; armRef.current(); }
       }
     });
     const onVisibility = () => {
       if (document.hidden) cancel();
-      else if (foreground.current) armRef.current();
+      else if (foreground.current) { wakeBlocked.current = false; armRef.current(); }
     };
     window.addEventListener('airaNativeReady', onReady);
     window.addEventListener('airaVoiceOwner', onOwner);
@@ -194,24 +195,18 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   }, [cancel, update]);
 
   useEffect(() => {
-    cancel();
-    if (!eligible()) { enabledRef.current = false; setEnabled(false); }
-    else armRef.current();
-  }, [props.currentPathname, props.auth?.userId, props.auth?.companyId, cancel, eligible]);
+    const nextIdentity = `${props.auth?.userId || ''}:${props.auth?.companyId || ''}`;
+    if (identity.current !== nextIdentity || !eligible()) {
+      cancel();
+      identity.current = nextIdentity;
+      wakeBlocked.current = false;
+    }
+    if (ready && eligible()) armRef.current();
+  }, [ready, props.currentPathname, props.auth?.userId, props.auth?.companyId, cancel, eligible]);
 
-  if (!props.currentPathname || isPublicRoute(props.currentPathname) || !props.auth?.userId || !props.auth?.companyId) return null;
-  return <aside aria-label="iOS voice controls" style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 8px)', right: 8, zIndex: 1040, maxWidth: 260, background: '#fff', color: '#163947', border: '1px solid #b9dce8', borderRadius: 12, padding: '6px 10px', fontSize: 12, boxShadow: '0 2px 8px #0002' }}>
-    <button type="button" onClick={() => {
-      const next = !enabledRef.current;
-      enabledRef.current = next; setEnabled(next);
-      if (next) armRef.current();
-      else if (!busy.current && !dictating.current) cancel();
-    }} disabled={!ready} aria-pressed={enabled}>
-      {enabled ? 'Disable “Hey AIRA”' : 'Enable “Hey AIRA”'}
-    </button>
-    <div role="status">{!ready ? 'Update the iOS app for voice.' : snapshot.wakeWordEnabled ? 'Listening for “Hey AIRA”' : enabled ? 'Wake phrase paused during voice input' : 'Wake phrase off'}</div>
-    {!enabled && <div>Wake phrase uses on-device recognition while this app is open.</div>}
-    {snapshot.errorMessage && <div role="alert">{snapshot.errorMessage} <button type="button" onClick={start}>Retry voice</button></div>}
-    {nativeVoiceDebug() && <details><summary>Voice diagnostics</summary><pre style={{ whiteSpace: 'pre-wrap', fontSize: 10 }}>{JSON.stringify({ native: ready, foreground: foreground.current, state: snapshot.state, listening: snapshot.listening, wake: snapshot.wakeWordEnabled, secure: window.isSecureContext, path: props.currentPathname, engine: 'iOS Speech' }, null, 2)}</pre></details>}
-  </aside>;
+  if (!nativeVoiceDebug() || !eligible()) return null;
+  return <details aria-label="Voice diagnostics" style={{ position: 'fixed', right: 8, bottom: 100, zIndex: 1040, background: '#fff', padding: 8 }}>
+    <summary>Voice diagnostics</summary>
+    <pre>{JSON.stringify({ native: ready, foreground: foreground.current, state: snapshot.state, wake: snapshot.wakeWordEnabled, error: snapshot.errorMessage }, null, 2)}</pre>
+  </details>;
 });

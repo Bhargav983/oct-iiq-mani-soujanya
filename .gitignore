@@ -10,6 +10,8 @@
 
 # production
 /build
+/public/voice-assets/
+/public/voice-assets-manifest.json
 
 # misc
 .DS_Store

@@ -329,6 +329,7 @@ export function AssistantPage() {
       {/* 🧪 TEMPORARY TEST COMPONENT */}
       {/* <VADTest /> */}
       <AssistantHeader lang={lang} onLangChange={setLang} onNewChat={() => setShowNewChatConfirm(true)} />
+      {voiceSnapshot.errorMessage && <div role="alert" className="px-3 py-2 small text-danger">{voiceSnapshot.errorMessage}</div>}
 
       <div ref={scrollRef} className="aira-chat-scroll aira-glass">
         <div className="mx-auto d-flex flex-column gap-3" style={{ maxWidth: '42rem' }}>
