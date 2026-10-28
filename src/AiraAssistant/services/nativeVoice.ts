@@ -1,3 +1,4 @@
+import { detectVoiceRuntime } from './voiceEnvironment';
 export type NativeVoiceMode = 'wake' | 'conversation' | 'dictation';
 export interface NativeVoiceEvent {
   event: string;
@@ -19,9 +20,7 @@ type NativeWindow = Window & {
 };
 
 export function isIosApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  const w = window as NativeWindow;
-  return Boolean(w.__AIRA_IOS_APP__ || (w.ReactNativeWebView && /iPhone|iPad|iPod/.test(navigator.userAgent)));
+  return detectVoiceRuntime() === 'ios-webview';
 }
 
 export function hasNativeVoice(): boolean {

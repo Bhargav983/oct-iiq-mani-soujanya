@@ -1,6 +1,7 @@
 import { WakeWordEngine } from 'openwakeword-wasm-browser';
 import * as ort from 'onnxruntime-web';
 import { configureVoiceRuntime, voiceAssets } from './voiceRuntime';
+import { browserMicrophone, withCaptureRetry, type MicrophoneLease } from './browserMicrophone';
 
 configureVoiceRuntime(ort);
 
@@ -10,12 +11,14 @@ export type WakeWordServiceOptions = {
   onWakeWord: () => void;
   onLevel?: (level: number) => void;
   onError?: (message: string) => void;
+  onStopped?: () => void;
 };
 
 /** 0.1.1 has no public disposal API. This adapter is pinned and tested. */
 type Releasable = { release: () => Promise<void> | void };
 type OwnedEngine = WakeWordEngine & {
   _processingQueue?: Promise<unknown>;
+  _mediaStream?: MediaStream | null;
   _melspecModel?: Releasable;
   _embeddingModel?: Releasable;
   _vadModel?: Releasable;
@@ -29,6 +32,7 @@ export class WakeWordService {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private stopRequested = false;
+  private microphone: MicrophoneLease | null = null;
 
   public constructor(private readonly options: WakeWordServiceOptions) {}
   public get isActive(): boolean { return this.active; }
@@ -67,8 +71,10 @@ export class WakeWordService {
       stage = 'loading wake models from ' + this.options.modelPath + ' (ONNX ' + voiceAssets.ortVersion + ')';
       await engine.load();
       if (this.stopRequested) return;
+      this.microphone = await browserMicrophone.acquire('wake', () => this.stop(), () => !this.stopRequested && !document.hidden);
+      if (!this.microphone || this.stopRequested) { await this.disposeEngine(); return; }
       stage = 'starting the microphone and AudioWorklet';
-      await engine.start();
+      await withCaptureRetry(() => engine.start(), () => !this.stopRequested && Boolean(this.microphone?.isCurrent()), () => engine.stop());
       if (!this.stopRequested) this.active = true;
     } catch (original: unknown) {
       this.active = false;
@@ -86,6 +92,10 @@ export class WakeWordService {
     this.engine = null;
     if (!engine) return;
     try { await engine.stop(); } catch (error) { console.warn('Wake microphone cleanup failed', error); }
+    finally {
+      engine._mediaStream?.getTracks().forEach(track => track.stop());
+      engine._mediaStream = null;
+    }
     // Let the last inference finish before releasing its sessions.
     try { await engine._processingQueue; } catch { /* already reported */ }
     const sessions = new Set([
@@ -97,6 +107,8 @@ export class WakeWordService {
     }
     engine._vadState?.h?.dispose?.();
     engine._vadState?.c?.dispose?.();
+    this.microphone?.release();
+    this.microphone = null;
   }
 
   public async stop(): Promise<void> {
@@ -108,7 +120,7 @@ export class WakeWordService {
       await this.disposeEngine();
     })();
     try { await this.stopping; }
-    finally { this.stopping = null; }
+    finally { this.stopping = null; this.options.onStopped?.(); }
   }
 }
 
