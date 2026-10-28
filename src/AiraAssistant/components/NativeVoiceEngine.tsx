@@ -204,9 +204,11 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
     if (ready && eligible()) armRef.current();
   }, [ready, props.currentPathname, props.auth?.userId, props.auth?.companyId, cancel, eligible]);
 
-  if (!nativeVoiceDebug() || !eligible()) return null;
-  return <details aria-label="Voice diagnostics" style={{ position: 'fixed', right: 8, bottom: 100, zIndex: 1040, background: '#fff', padding: 8 }}>
-    <summary>Voice diagnostics</summary>
-    <pre>{JSON.stringify({ native: ready, foreground: foreground.current, state: snapshot.state, wake: snapshot.wakeWordEnabled, error: snapshot.errorMessage }, null, 2)}</pre>
-  </details>;
+  // if (!nativeVoiceDebug() || !eligible()) return null;
+  // // return <details aria-label="Voice diagnostics" style={{ position: 'fixed', right: 8, bottom: 100, zIndex: 1040, background: '#fff', padding: 8 }}>
+  // //   <summary>Voice diagnostics</summary>
+  // //   <pre>{JSON.stringify({ native: ready, foreground: foreground.current, state: snapshot.state, wake: snapshot.wakeWordEnabled, error: snapshot.errorMessage }, null, 2)}</pre>
+  // // </details>;
+  // Voice diagnostics disabled
+return null;
 });
