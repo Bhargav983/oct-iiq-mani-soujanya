@@ -47,3 +47,41 @@ When a recognizer fails to signal end during cancellation, a five-second timeout
 Deploy the complete web build and reload both apps. No new native binary is required for these web microphone-handoff changes. A missing native Android permission or absent browser SpeechRecognition API cannot be fixed through device detection; unsupported dictation remains unavailable rather than claiming native support that the APK does not expose.
 
 Automated coverage includes a ten-cycle wake/dictation/wake integration test, manual conversation waiting for wake shutdown, delayed VAD shutdown, stale responses/results, late microphone grants, Android retry limits, runtime selection, and the existing iOS native voice tests. Test the real APK after deployment: ten dictation cycles, ten manual conversation cycles, rapid stop/start, exit during response playback, background/foreground, logout, and permission denial/recovery. Hardware release timing still needs verification on the failing Android device.
+
+
+## Android native audio permission and readiness fix
+
+The separate `air2o-android-expo` wrapper now declares both `RECORD_AUDIO` and
+`MODIFY_AUDIO_SETTINGS`. It awaits the actual microphone permission decision
+before requesting notification permission; the page remains usable while waiting.
+A new APK is required for the manifest permission. A web deploy or Expo OTA update
+alone cannot apply it. This supersedes earlier web-only deployment guidance for
+this Android capture failure.
+
+The wrapper advertises `Air2oAndroidAudio/1` in its user agent and publishes
+`window.__AIRA_ANDROID_AUDIO__` (version 1, permission pending/granted/denied,
+foreground boolean), followed by `aira-android-audio`. The web app requests a
+fresh snapshot with `{type: 'AIRA_ANDROID_AUDIO_STATE', version: 1}`. Only the
+configured HTTPS app origin receives this state. Before that snapshot arrives,
+updated wrappers defer capture. Permission denial/background state blocks capture;
+returning to the foreground checks the OS permission again and rearms wake when
+ready. Existing browser and iOS voice paths and legacy Android fallback remain.
+
+Deploy the updated web build to the URL configured in the Android wrapper
+(currently `https://testcustomer.air2o.net`), provide `google-services.json` through
+the normal Firebase/EAS setup, then build/install a fresh Android APK. If changing
+the host, also update the wrapper's trusted audio bridge origin checks.
+
+Physical device acceptance checks:
+1. Fresh install: allow microphone access; wake should start after permission,
+   without an extra wake-enable button. Denial must leave the page usable.
+2. Repeat wake -> conversation -> spoken reply -> dictation -> wake at least
+   ten times. Confirm no `NotReadableError` and no overlapping capture.
+3. Background/foreground and lock/unlock: capture stops, then wake resumes when
+   permission is granted. Revoke/regrant microphone permission in Android settings.
+4. Repeat mic, dictation, spoken reply and wake checks in desktop web and iOS.
+5. If capture still fails, isolate it using `/wakeword_test.html` in the new APK
+   and collect Android/WebView versions and native logcat around capture startup.
+
+Local checks validate the resolved manifest, Android JS export, web build and
+voice regressions. They do not substitute for microphone tests on a physical phone.

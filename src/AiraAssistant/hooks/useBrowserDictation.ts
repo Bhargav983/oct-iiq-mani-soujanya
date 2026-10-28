@@ -1,3 +1,4 @@
+import { ANDROID_AUDIO_EVENT, browserAudioReady } from '../services/androidAudio';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browserMicrophone, type MicrophoneLease } from '../services/browserMicrophone';
 import { voiceCapabilities } from '../services/voiceEnvironment';
@@ -39,6 +40,10 @@ export function useBrowserDictation(lang: string, onText: (text: string) => void
   const start = useCallback(() => {
     const Api = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!Api || active.current || isIosApp()) return;
+    if (!browserAudioReady()) {
+      setErrorMessage('Allow microphone access in Android settings and return to the app to use voice.');
+      return;
+    }
     let resolveEnd: () => void = () => {};
     const session = { recognition: null as any, lease: null as MicrophoneLease | null, cancelled: false, ended: false, end: () => {},
       done: new Promise<void>(resolve => { resolveEnd = resolve; }) };
@@ -87,11 +92,13 @@ export function useBrowserDictation(lang: string, onText: (text: string) => void
 
   useEffect(() => {
     mounted.current = true;
-    const background = (event: Event) => { if (document.hidden || event.type === 'pagehide') void abort().catch(error => { if (mounted.current) setErrorMessage(String(error)); }); };
+    const background = (event: Event) => { if (document.hidden || event.type === 'pagehide' || !browserAudioReady()) void abort().catch(error => { if (mounted.current) setErrorMessage(String(error)); }); };
+    window.addEventListener(ANDROID_AUDIO_EVENT, background);
     document.addEventListener('visibilitychange', background);
     window.addEventListener('pagehide', background);
     return () => {
       mounted.current = false;
+      window.removeEventListener(ANDROID_AUDIO_EVENT, background);
       document.removeEventListener('visibilitychange', background);
       window.removeEventListener('pagehide', background);
       void abort().catch(() => {});

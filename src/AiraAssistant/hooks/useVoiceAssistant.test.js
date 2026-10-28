@@ -134,3 +134,39 @@ test('wake re-arms if another owner finishes while wake initialization is cleani
   expect(result.current.wakeWordEnabled).toBe(true);
   expect(WakeWordService).toHaveBeenCalledTimes(2);
 });
+
+
+test('Android defers wake until native grant, stops on background and rearms on return', async () => {
+  window.__AIRA_ANDROID_APP__ = true;
+  window.__AIRA_ANDROID_AUDIO__ = { version: 1, permission: 'pending', foreground: true };
+  const stop = jest.fn(async () => {});
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop, isActive: true }));
+  const hook = mount();
+  try {
+    await act(async () => {});
+    expect(WakeWordService).not.toHaveBeenCalled();
+    await act(async () => {
+      window.__AIRA_ANDROID_AUDIO__ = { version: 1, permission: 'granted', foreground: true };
+      window.dispatchEvent(new Event('aira-android-audio'));
+    });
+    expect(hook.result.current.wakeWordEnabled).toBe(true);
+    const attempts = WakeWordService.mock.calls.length;
+    await act(async () => {
+      window.__AIRA_ANDROID_AUDIO__.foreground = false;
+      window.dispatchEvent(new Event('aira-android-audio'));
+    });
+    expect(stop).toHaveBeenCalled();
+    expect(hook.result.current.wakeWordEnabled).toBe(false);
+    expect(WakeWordService).toHaveBeenCalledTimes(attempts);
+    await act(async () => {
+      window.__AIRA_ANDROID_AUDIO__.foreground = true;
+      window.dispatchEvent(new Event('aira-android-audio'));
+    });
+    expect(hook.result.current.wakeWordEnabled).toBe(true);
+    expect(WakeWordService).toHaveBeenCalledTimes(attempts + 1);
+  } finally {
+    hook.unmount();
+    delete window.__AIRA_ANDROID_APP__;
+    delete window.__AIRA_ANDROID_AUDIO__;
+  }
+});

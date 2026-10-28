@@ -1,3 +1,4 @@
+import { ANDROID_AUDIO_EVENT, browserAudioReady, requestAndroidAudioState } from '../services/androidAudio';
 import { useMicVAD } from '@ricky0123/vad-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceState } from '../types';
@@ -747,7 +748,7 @@ export function useVoiceAssistant(
   }, []);
 
   const armWakeWord = useCallback(async () => {
-    if (isUnmountedRef.current || wakeFailureRef.current) return;
+    if (isUnmountedRef.current || wakeFailureRef.current || !browserAudioReady()) return;
     // iOS app WebView: running the wake-word ONNX runtime next to the VAD
     // exhausts WASM memory. Use tap-to-talk there instead.
     if (isIosNativeApp()) {
@@ -915,7 +916,7 @@ export function useVoiceAssistant(
       if (!conversationRequestedRef.current && !document.hidden && !isUnmountedRef.current) void armWakeWordRef.current();
     });
     const background = (event: Event) => {
-      if (document.hidden || event.type === 'pagehide') {
+      if (document.hidden || event.type === 'pagehide' || !browserAudioReady()) {
         ++sessionGenerationRef.current;
         conversationRequestedRef.current = false;
         shouldListenRef.current = false;
@@ -927,10 +928,13 @@ export function useVoiceAssistant(
         updateState('IDLE');
       } else { wakeFailureRef.current = false; void armWakeWordRef.current(); }
     };
+    window.addEventListener(ANDROID_AUDIO_EVENT, background);
+    requestAndroidAudioState();
     document.addEventListener('visibilitychange', background);
     window.addEventListener('pagehide', background);
     return () => {
       unsubscribe();
+      window.removeEventListener(ANDROID_AUDIO_EVENT, background);
       document.removeEventListener('visibilitychange', background);
       window.removeEventListener('pagehide', background);
     };
@@ -1054,6 +1058,10 @@ export function useVoiceAssistant(
 
   const start = useCallback(async () => {
     if (isUnmountedRef.current) return;
+    if (!browserAudioReady()) {
+      setErrorMessage('Allow microphone access in Android settings and return to the app to use voice.');
+      return;
+    }
     console.log('🎙️ [VoiceAssistant] START called');
 
     if (!supported) {
