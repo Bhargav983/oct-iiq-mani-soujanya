@@ -3,7 +3,7 @@ import { CompactPillVisualizer } from './CompactPillVisualizer';
 import { toVisualizerState } from './WaveformVisualizer';
 
 const STAGE_TEXT: Record<VoiceState, string> = {
-  IDLE: 'Listening...',
+  IDLE: 'Preparing microphone...',
   LISTENING: 'Listening...',
   PROCESSING: 'Thinking...',
   SYNTHESIZING: 'Preparing...',

@@ -17,7 +17,9 @@ import { ErrorAnalyticsCard } from './ErrorAnalyticsCard';
 import { getMachines } from '../services/machineService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
+import { playMessage, stopMessagePlayback } from '../services/messagePlayback';
+import { useVoiceAssistantContext } from '../context/VoiceAssistantContext';
 
 export function ChatMessageView({
   message,
@@ -206,6 +208,18 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 
 function SpeakButton({ text, lang }: { text: string; lang: Language }) {
   const s = t(lang);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'playing'>('idle');
+  const [error, setError] = useState('');
+  const { userId, companyId } = useVoiceAssistantContext();
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  async function listen() {
+    if (status !== 'idle') { stopMessagePlayback(); setStatus('idle'); return; }
+    setError(''); setStatus('loading');
+    try { await playMessage(text, () => { if (mounted.current) setStatus('playing'); }, { userId, companyId }); }
+    catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : 'Unable to play audio.'); }
+    finally { if (mounted.current) setStatus('idle'); }
+  }
   if (!text) return null;
   return (
     <Button
@@ -219,47 +233,15 @@ function SpeakButton({ text, lang }: { text: string; lang: Language }) {
         color: '#1A83B1',
         fontWeight: 500,
       }}
-      onClick={() => speak(text, lang)}
+      onClick={() => { void listen(); }}
+      aria-label={error || undefined}
     >
-      <i className="bi bi-volume-up" style={{ color: '#1A83B1' }} /> {s.listen}
+      <i className="bi bi-volume-up" style={{ color: '#1A83B1' }} /> {status === 'loading' ? 'Preparing audio… Stop' : status === 'playing' ? 'Stop' : s.listen}
+      {error && <span role="alert"> {error}</span>}
     </Button>
   );
 }
 
-export function speak(text: string, lang: Language) {
-  try {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    
-    const voices = window.speechSynthesis.getVoices();
-    
-    // Select preferred voice (natural sounding voices)
-    const preferred = voices.find(v => 
-      v.name.includes("Google") || 
-      v.name.includes("Microsoft") || 
-      v.name.includes("Apple") ||
-      v.name.includes("Natural")
-    ) || voices.find(v => v.lang.startsWith(lang === 'ar' ? 'ar' : lang === 'hi' ? 'hi' : 'en'));
-    
-    const u = new SpeechSynthesisUtterance(stripEmoji(text));
-    u.lang = lang === 'ar' ? 'ar-SA' : lang === 'hi' ? 'hi-IN' : 'en-US';
-    
-    // Use selected voice if available
-    if (preferred) {
-      u.voice = preferred;
-    }
-    
-    // Improve speech quality with better rate and pitch
-    u.rate = 0.9;  // Slightly slower for clarity
-    u.pitch = 1.1; // Slightly higher pitch for less robotic sound
-    u.volume = 1;
-    
-    window.speechSynthesis.speak(u);
-  } catch {
-    // ignore
-  }
-}
-
-function stripEmoji(t: string): string {
-  return t.replace(/(?:[\uD83C-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27BF])/g, '').trim();
+export function speak(text: string, _lang: Language) {
+  return playMessage(text);
 }

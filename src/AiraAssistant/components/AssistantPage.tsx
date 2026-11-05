@@ -1,3 +1,4 @@
+import { requestedLanguage } from '../services/voiceLanguage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Modal } from 'react-bootstrap';
 import type { Action, ChatMessage, Language, QuickActionKey, SuggestedAction } from '../types';
@@ -95,7 +96,7 @@ export function AssistantPage() {
   } = useVoiceAssistantContext();
   const auth = useMemo(() => ({ userId, companyId }), [userId, companyId]);
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(IDLE_VOICE_SNAPSHOT);
-  useEffect(() => { setVoiceLanguage(lang); }, [lang, setVoiceLanguage]);
+  useEffect(() => { setVoiceLanguage(lang); setCtx(previous => ({ ...previous, lang })); }, [lang, setVoiceLanguage]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -152,7 +153,8 @@ export function AssistantPage() {
 
     if (busy) return;
     hideCurrentSuggestions();
-    const currentLang = ctx.lang;
+    const currentLang = action.type === 'text' ? requestedLanguage(action.text, lang) : lang;
+    if (currentLang !== lang) setLang(currentLang);
     const userText = userTextFor(action, currentLang);
     const userMsg = userText
       ? [{ id: createMessageId('m'), role: 'user' as const, kind: 'text' as const, text: userText, timestamp: Date.now() } satisfies ChatMessage]
@@ -160,7 +162,7 @@ export function AssistantPage() {
     setMessages((prev) => [...prev, ...userMsg]);
     setBusy(true);
 
-    const result = dispatch(action, { ...ctx, lang }, auth);
+    const result = dispatch(action, { ...ctx, lang: currentLang }, auth);
 
     const loadingId = result.loadingMessage?.id ?? null;
     if (result.loadingMessage) {
@@ -203,7 +205,8 @@ export function AssistantPage() {
     if (!trimmed) return '';
 
     hideCurrentSuggestions();
-    const currentLang = ctx.lang;
+    const currentLang = requestedLanguage(trimmed, lang);
+    if (currentLang !== lang) setLang(currentLang);
     const userMsg: ChatMessage[] = [
       { id: createMessageId('m'), role: 'user', kind: 'text', text: trimmed, timestamp: Date.now() },
     ];

@@ -1,3 +1,4 @@
+import { MESSAGE_PLAYBACK_EVENT, messagePlaybackActive, stopMessagePlayback } from '../services/messagePlayback';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { VoiceEngineHandle, VoiceEngineProps, VoiceSnapshot } from './VoiceEngine';
 import { hasNativeVoice, listenNativeVoice, nativeVoiceDebug, requestNativeReady, startNativeVoice, voiceLocale } from '../services/nativeVoice';
@@ -25,7 +26,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   const identity = useRef('');
   const armRef = useRef<() => void>(() => {});
   const startRef = useRef<() => void>(() => {});
-  const eligible = useCallback(() => foreground.current && !document.hidden && Boolean(latest.current.auth?.userId && latest.current.auth?.companyId && latest.current.currentPathname && !isPublicRoute(latest.current.currentPathname)), []);
+  const eligible = useCallback(() => foreground.current && !document.hidden && !messagePlaybackActive() && Boolean(latest.current.auth?.userId && latest.current.auth?.companyId && latest.current.currentPathname && !isPublicRoute(latest.current.currentPathname)), []);
   const update = useCallback((patch: Partial<VoiceSnapshot>) => {
     if (mounted.current) setSnapshot(previous => ({ ...previous, ...patch }));
   }, []);
@@ -98,6 +99,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   }, [eligible, update]);
 
   const start = useCallback(() => {
+    if (messagePlaybackActive()) stopMessagePlayback();
     cancel();
     wakeBlocked.current = false;
     dictating.current = false;
@@ -173,9 +175,10 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
       }
     });
     const onVisibility = () => {
-      if (document.hidden) cancel();
+      if (document.hidden || messagePlaybackActive()) cancel();
       else if (foreground.current) { wakeBlocked.current = false; armRef.current(); }
     };
+    window.addEventListener(MESSAGE_PLAYBACK_EVENT, onVisibility);
     window.addEventListener('airaNativeReady', onReady);
     window.addEventListener('airaVoiceOwner', onOwner);
     window.addEventListener('airaDictationEnd', onReleased);
@@ -186,6 +189,7 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
     return () => {
       mounted.current = false;
       cancel(); unsubscribe();
+      window.removeEventListener(MESSAGE_PLAYBACK_EVENT, onVisibility);
       window.removeEventListener('airaNativeReady', onReady);
       window.removeEventListener('airaVoiceOwner', onOwner);
       window.removeEventListener('airaDictationEnd', onReleased);

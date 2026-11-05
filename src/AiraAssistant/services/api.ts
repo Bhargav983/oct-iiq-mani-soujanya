@@ -1,3 +1,5 @@
+import type { Language } from '../types';
+import { requestedLanguage } from './voiceLanguage';
 import type { ChatMessage, ChatContext, Machine, ServiceRequest, SuggestedAction, ErrorLogsCardData } from '../types';
 import { createMessageId } from '../utils/messageId';
 import { setCachedMachines } from './machineService';
@@ -53,12 +55,18 @@ export type N8nResponse = {
 export async function callAssistant(
   chatInput: string,
   authParams?: AuthParamsInput,
+  language: Language = 'en',
 ): Promise<N8nResponse> {
+  const started = performance.now();
+  const responseLanguage = requestedLanguage(chatInput, language);
   const res = await fetch(WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: chatInput,
+      language: responseLanguage,
+      response_language: responseLanguage,
+      instructions: `Respond in ${{ en: 'English', hi: 'Hindi', ar: 'Arabic' }[responseLanguage]}. Your name is Aira; pronounce it as a name, never spell its letters.`,
       // Authenticated identity — sourced from React <AuthContext /> at the
       // call site (see VoiceAssistantProvider) and passed in here. Empty
       // strings are sent through unchanged so n8n can apply its own
@@ -74,6 +82,7 @@ export async function callAssistant(
 
   const data = await res.json();
   console.log('n8n raw response:', data);
+  console.info('[VoiceTiming] chat-response-ms', Math.round(performance.now() - started));
   const payload = normalizeN8nResponse(data);
   console.log('n8n normalized payload:', payload);
   return payload;

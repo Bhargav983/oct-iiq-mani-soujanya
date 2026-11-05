@@ -1,3 +1,4 @@
+import { MESSAGE_PLAYBACK_EVENT, messagePlaybackActive, stopMessagePlayback } from '../services/messagePlayback';
 import { ANDROID_AUDIO_EVENT, browserAudioReady, requestAndroidAudioState } from '../services/androidAudio';
 import { useMicVAD } from '@ricky0123/vad-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -255,10 +256,17 @@ export function useVoiceAssistant(
 
   const startVad = useCallback(async () => {
     if (vadStartingRef.current) return vadStartingRef.current;
-    await vadPausingRef.current;
-    if (vadStartingRef.current) return vadStartingRef.current;
-    if (!microphoneRef.current?.isCurrent() || !conversationRequestedRef.current || isUnmountedRef.current) throw audioCancelled();
-    const pending = Promise.resolve(vadRef.current?.start());
+    const valid = () => Boolean(microphoneRef.current?.isCurrent() && conversationRequestedRef.current && !isUnmountedRef.current);
+    const pending = (async () => {
+      await vadPausingRef.current;
+      const deadline = Date.now() + 15000;
+      while (vadRef.current?.loading && valid() && Date.now() < deadline) {
+        await new Promise<void>(resolve => setTimeout(resolve, 50));
+      }
+      if (!valid()) throw audioCancelled();
+      if (!vadRef.current || vadRef.current.loading || vadRef.current.errored) throw new Error('Microphone preparation failed. Tap the mic to retry.');
+      await vadRef.current.start();
+    })();
     vadStartingRef.current = pending;
     try { await pending; }
     finally { if (vadStartingRef.current === pending) vadStartingRef.current = null; }
@@ -336,7 +344,9 @@ export function useVoiceAssistant(
       socketRef.current = null;
     }
 
-    const url = process.env.REACT_APP_STT_SOCKET_URL || DEFAULT_STT_URL;
+    const endpoint = new URL(process.env.REACT_APP_STT_SOCKET_URL || DEFAULT_STT_URL);
+    endpoint.searchParams.set('language', _lang);
+    const url = endpoint.toString();
 
     console.log('🔵 [VoiceAssistant] Creating NEW VoiceSocket', {
       url,
@@ -472,7 +482,7 @@ export function useVoiceAssistant(
       socketRef.current = socket;
       socket.connect();
     });
-  }, [pauseVad, updateState, updateTranscript]);
+  }, [_lang, pauseVad, updateState, updateTranscript]);
 
   /**
    * Strict handshake gate: guarantees the STT WebSocket is fully OPEN
@@ -748,7 +758,7 @@ export function useVoiceAssistant(
   }, []);
 
   const armWakeWord = useCallback(async () => {
-    if (isUnmountedRef.current || wakeFailureRef.current || !browserAudioReady()) return;
+    if (isUnmountedRef.current || wakeFailureRef.current || messagePlaybackActive() || !browserAudioReady()) return;
     // iOS app WebView: running the wake-word ONNX runtime next to the VAD
     // exhausts WASM memory. Use tap-to-talk there instead.
     if (isIosNativeApp()) {
@@ -916,7 +926,7 @@ export function useVoiceAssistant(
       if (!conversationRequestedRef.current && !document.hidden && !isUnmountedRef.current) void armWakeWordRef.current();
     });
     const background = (event: Event) => {
-      if (document.hidden || event.type === 'pagehide' || !browserAudioReady()) {
+      if (document.hidden || event.type === 'pagehide' || messagePlaybackActive() || !browserAudioReady()) {
         ++sessionGenerationRef.current;
         conversationRequestedRef.current = false;
         shouldListenRef.current = false;
@@ -928,12 +938,14 @@ export function useVoiceAssistant(
         updateState('IDLE');
       } else { wakeFailureRef.current = false; void armWakeWordRef.current(); }
     };
+    window.addEventListener(MESSAGE_PLAYBACK_EVENT, background);
     window.addEventListener(ANDROID_AUDIO_EVENT, background);
     requestAndroidAudioState();
     document.addEventListener('visibilitychange', background);
     window.addEventListener('pagehide', background);
     return () => {
       unsubscribe();
+      window.removeEventListener(MESSAGE_PLAYBACK_EVENT, background);
       window.removeEventListener(ANDROID_AUDIO_EVENT, background);
       document.removeEventListener('visibilitychange', background);
       window.removeEventListener('pagehide', background);
@@ -963,7 +975,7 @@ export function useVoiceAssistant(
     setDone(false);
     setErrorMessage(null);
     updateTranscript('');
-    updateState('LISTENING');
+    updateState('IDLE');
     try {
       // faster-whisper-server closes the WebSocket after every final
       // transcript — always verify/re-open before VAD streams again.
@@ -1012,6 +1024,8 @@ export function useVoiceAssistant(
         } else {
           console.log('🟢 [MultiTurn] MicVAD already listening — continuing session');
         }
+        if (generation !== sessionGenerationRef.current) return;
+        updateState('LISTENING');
         console.log('🟢 [MultiTurn] Session continues — listening for next utterance');
       } else {
         console.log('⏳ [MultiTurn] VAD failed to become ready — deferring to wake word');
@@ -1062,6 +1076,8 @@ export function useVoiceAssistant(
       setErrorMessage('Allow microphone access in Android settings and return to the app to use voice.');
       return;
     }
+    if (messagePlaybackActive()) stopMessagePlayback();
+    const activationStarted = performance.now();
     console.log('🎙️ [VoiceAssistant] START called');
 
     if (!supported) {
@@ -1093,7 +1109,7 @@ export function useVoiceAssistant(
     setDone(false);
     setErrorMessage(null);
     updateTranscript('');
-    updateState('LISTENING');
+    updateState('IDLE');
 
     console.log('🎙️ [VoiceAssistant] Creating STT socket');
     try {
@@ -1187,16 +1203,25 @@ export function useVoiceAssistant(
     streamingRef.current = false;
 
     console.log('🎙️ [VoiceAssistant] Socket stable — starting VAD');
-    if (vad.loading) {
-      console.log('⏳ [VAD:START] VAD is still loading — start will be deferred');
+    const vadDeadline = Date.now() + 15000;
+    while (vadRef.current?.loading && current() && Date.now() < vadDeadline) {
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+    }
+    if (!current()) return;
+    if (vadRef.current?.loading || vadRef.current?.errored) {
+      shouldListenRef.current = false;
+      conversationRequestedRef.current = false;
+      await releaseConversation();
+      setErrorMessage('Microphone preparation failed. Tap the mic to retry.');
+      updateState('ERROR');
       return;
     }
     try {
       console.log('🟡 [VAD:START] Calling vad.start()');
       await startVad();
-      // Give the audio pipeline a moment to produce its first clean frames
-      // before enabling streaming to Whisper.
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      if (!current()) return;
+      updateState('LISTENING');
+      console.info('[VoiceTiming] activation-ready-ms', Math.round(performance.now() - activationStarted));
       console.log('🟢 [VoiceAssistant] Session armed — streaming enabled', {
         listening: vad.listening,
         errored: vad.errored,
@@ -1377,38 +1402,6 @@ export function useVoiceAssistant(
       updateState('ERROR');
     }
   }, [updateState, vad.errored]);
-
-  useEffect(() => {
-    console.log('🧠 [VAD] Loading state changed:', vad.loading);
-    if (
-      !vad.loading &&
-      !vad.errored &&
-      shouldListenRef.current &&
-      !vad.listening
-    ) {
-      console.log('🟢 [VAD:READY] VAD finished loading — starting microphone');
-      // Same strict handshake as start(): never begin capture until the STT
-      // WebSocket is fully OPEN, otherwise early frames are dropped.
-      void (async () => {
-        const socketOpen = await ensureSocketOpen();
-        if (!socketOpen || isUnmountedRef.current) {
-          console.error('🔴 [VAD:READY] Aborting deferred start — no OPEN socket');
-          return;
-        }
-        if (!shouldListenRef.current || !microphoneRef.current?.isCurrent()) return;
-        void startVad()
-          .then(() => {
-            console.log('🟢 [VAD:READY] VAD microphone started', {
-              listening: vad.listening,
-              errored: vad.errored,
-            });
-          })
-          .catch((error) => {
-            console.error('🔴 [VAD:READY] Failed to start VAD:', error);
-          });
-      })();
-    }
-  }, [ensureSocketOpen, startVad, updateState, vad.loading, vad.errored, vad.listening, vad]);
 
   useEffect(() => {
     console.log('🧠 [VAD] Listening state changed:', vad.listening);

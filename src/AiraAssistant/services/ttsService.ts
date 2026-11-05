@@ -1,3 +1,4 @@
+import { speechText, speechLanguage } from './voiceLanguage';
 /**
  * TTS Service for playing Kokoro TTS responses from n8n
  *
@@ -60,6 +61,12 @@ class TTSService {
   private currentAudioUrl: string | null = null;
   private finishPlayback: (() => void) | null = null;
   private generation = 0;
+  private cache = new Map<string, Blob>();
+  private remember(key: string, blob: Blob) {
+    if (blob.size > 2 * 1024 * 1024) return;
+    this.cache.set(key, blob);
+    while (this.cache.size > 4) this.cache.delete(this.cache.keys().next().value!);
+  }
   private synthesis: AbortController | null = null;
 
   /**
@@ -86,6 +93,8 @@ class TTSService {
     onPlaybackStart?: () => void,
     auth?: AuthParamsInput,
   ): Promise<void> {
+    text = speechText(text);
+    const started = performance.now();
     // Stop any currently playing audio
     this.stopCurrentAudio();
     const generation = this.generation;
@@ -93,6 +102,9 @@ class TTSService {
     this.synthesis = synthesis;
 
     try {
+      const cacheKey = JSON.stringify([text, auth?.userId, auth?.companyId]);
+      const cached = this.cache.get(cacheKey);
+      if (cached) { await this.playAudioBlob(cached, onPlaybackStart); return; }
       console.log('🔊 [TTS] Converting text to speech:', text.substring(0, 50) + '...');
 
       // -----------------------------------------------------------------
@@ -122,6 +134,7 @@ class TTSService {
           const nabraBlob = await nabraResponse.blob();
           if (generation !== this.generation) return;
           console.log('🌙 [TTS] Nabra returned audio blob:', nabraBlob.size, 'bytes');
+          this.remember(cacheKey, nabraBlob);
           await this.playAudioBlob(nabraBlob, onPlaybackStart);
           return;
         } catch (nabraError) {
@@ -147,7 +160,7 @@ class TTSService {
         },
         body: JSON.stringify({
           input: text,
-          voice: 'af_sarah',
+          voice: speechLanguage(text) === 'hi' ? (process.env.REACT_APP_HINDI_TTS_VOICE || 'hf_alpha') : 'af_sarah',
           response_format: 'wav',
           // Same contract as the chat webhook — empty strings are sent
           // through unchanged when AuthContext has not yet hydrated.
@@ -168,6 +181,8 @@ class TTSService {
       // Hand off to the shared audio-element / Promise lifecycle.
       // The Kokoro fetch above is intentionally unchanged; everything
       // from this point on is identical for the Nabra and Kokoro paths.
+      this.remember(cacheKey, audioBlob);
+      console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - started));
       await this.playAudioBlob(audioBlob, onPlaybackStart);
 
     } catch (error) {

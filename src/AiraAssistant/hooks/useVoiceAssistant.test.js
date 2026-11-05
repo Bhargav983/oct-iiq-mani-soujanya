@@ -19,6 +19,7 @@ jest.mock('../services/ttsService', () => ({ ttsService: { stopCurrentAudio: jes
 
 beforeEach(() => {
   jest.clearAllMocks(); mockSockets.length = 0;
+  useMicVAD({}).loading = false;
   VoiceSocket.mockImplementation(config => {
     const socket = { config, connect: () => config.onStateChange('CONNECTED'), getState: () => 'CONNECTED', isConnected: () => true,
       disconnect: jest.fn(), endUtterance: jest.fn(), whenConnected: async () => {} };
@@ -169,4 +170,25 @@ test('Android defers wake until native grant, stops on background and rearms on 
     delete window.__AIRA_ANDROID_APP__;
     delete window.__AIRA_ANDROID_AUDIO__;
   }
+});
+
+
+test('first activation waits for VAD readiness before claiming to listen', async () => {
+  jest.useFakeTimers();
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop: async () => {}, isActive: true }));
+  const hook = mount();
+  try {
+    await act(async () => {});
+    useMicVAD({}).loading = true;
+    let pending;
+    act(() => { pending = hook.result.current.start(); });
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(hook.result.current.listening).toBe(false);
+    expect(useMicVAD({}).start).not.toHaveBeenCalled();
+    useMicVAD({}).loading = false;
+    for (let i = 0; i < 10; i++) await act(async () => { jest.advanceTimersByTime(100); });
+    await act(async () => { await pending; });
+    expect(useMicVAD({}).start).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.listening).toBe(true);
+  } finally { hook.unmount(); jest.useRealTimers(); }
 });

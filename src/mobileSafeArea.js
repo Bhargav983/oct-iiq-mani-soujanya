@@ -4,8 +4,9 @@ export const getNativeSafeTop = ({
   isReactNativeWebView = false,
   userAgent = "",
   visualViewportOffsetTop = 0,
+  nativeInsetsHandled = false,
 } = {}) => {
-  if (!isReactNativeWebView) return 0;
+  if (!isReactNativeWebView || nativeInsetsHandled) return 0;
   const measuredInset = Math.max(0, Number(visualViewportOffsetTop) || 0);
   return /android/i.test(userAgent)
     ? Math.max(measuredInset, ANDROID_WEBVIEW_SAFE_TOP_PX)
@@ -20,6 +21,7 @@ export const installNativeSafeArea = (windowObject = window) => {
     const safeTop = getNativeSafeTop({
       isReactNativeWebView: Boolean(windowObject.ReactNativeWebView),
       userAgent: windowObject.navigator?.userAgent || "",
+      nativeInsetsHandled: /Air2oSafeArea\/1\b/.test(windowObject.navigator?.userAgent || ""),
       visualViewportOffsetTop: windowObject.visualViewport?.offsetTop || 0,
     });
     root.style.setProperty("--airo-native-safe-top", `${safeTop}px`);

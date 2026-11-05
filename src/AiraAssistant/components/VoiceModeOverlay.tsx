@@ -3,7 +3,7 @@ import type { VoiceState } from '../types';
 import { toVisualizerState } from './WaveformVisualizer';
 
 const STATUS_BY_STATE: Record<VoiceState, string> = {
-  IDLE: 'Listening',
+  IDLE: 'Preparing microphone',
   LISTENING: 'Listening',
   PROCESSING: 'Thinking',
   SYNTHESIZING: 'Preparing response',

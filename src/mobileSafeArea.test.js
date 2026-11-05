@@ -39,3 +39,7 @@ test("does not invent an iOS inset when CSS safe areas handle it", () => {
     })
   ).toBe(0);
 });
+
+test("native safe-area wrappers do not receive a second web inset", () => {
+  expect(getNativeSafeTop({ isReactNativeWebView: true, userAgent: 'Android', nativeInsetsHandled: true, visualViewportOffsetTop: 24 })).toBe(0);
+});

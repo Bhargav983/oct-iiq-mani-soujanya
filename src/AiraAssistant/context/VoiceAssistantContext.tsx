@@ -193,7 +193,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
       return typeof result === 'string' ? result : '';
     }
     try {
-      const response = await callAssistant(text, { userId, companyId });
+      const response = await callAssistant(text, { userId, companyId }, voiceLanguage);
       const { messages } = mapResponse(response, text);
       const reply = messages.find(
         (message) => message.role === 'assistant' && message.kind === 'text' && message.text,
@@ -203,7 +203,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
       console.error('🔴 [VoiceAssistantContext] Fallback n8n call failed:', error);
       return '';
     }
-  }, [userId, companyId]);
+  }, [userId, companyId, voiceLanguage]);
 
   const handleSnapshot = useCallback((snapshot: VoiceSnapshot) => {
     setWakeWordArmed(snapshot.wakeWordEnabled);

@@ -1,0 +1,32 @@
+import { playMessage, stopMessagePlayback, messagePlaybackActive } from './messagePlayback';
+import { browserMicrophone } from './browserMicrophone';
+import { playTTS } from './ttsService';
+jest.mock('./ttsService', () => ({ playTTS: jest.fn(), ttsService: { stopCurrentAudio: jest.fn() } }));
+afterEach(() => { stopMessagePlayback(); delete window.__AIRA_IOS_APP__; delete window.ReactNativeWebView; });
+test('Listen waits for wake release and holds ownership until playback ends', async () => {
+  let release, finish;
+  await browserMicrophone.acquire('wake', () => new Promise(resolve => { release = resolve; }));
+  playTTS.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = playMessage('Hello');
+  await Promise.resolve(); await Promise.resolve();
+  expect(messagePlaybackActive()).toBe(true);
+  expect(playTTS).not.toHaveBeenCalled();
+  release();
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(browserMicrophone.mode).toBe('playback');
+  finish(); await pending;
+  expect(browserMicrophone.mode).toBe(null);
+  expect(messagePlaybackActive()).toBe(false);
+});
+test('iOS Listen waits for native capture acknowledgement', async () => {
+  window.__AIRA_IOS_APP__ = true;
+  window.ReactNativeWebView = { postMessage: jest.fn() };
+  playTTS.mockClear(); playTTS.mockResolvedValue(undefined);
+  const pending = playMessage('Hello');
+  const command = JSON.parse(window.ReactNativeWebView.postMessage.mock.calls[0][0]);
+  expect(playTTS).not.toHaveBeenCalled();
+  window.dispatchEvent(new CustomEvent('airaNativeVoice', { detail: { event: 'playbackReady', requestId: command.requestId } }));
+  await pending;
+  expect(playTTS).toHaveBeenCalledTimes(1);
+  expect(messagePlaybackActive()).toBe(false);
+});

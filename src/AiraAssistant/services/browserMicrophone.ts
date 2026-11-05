@@ -1,7 +1,7 @@
 import { browserAudioReady } from './androidAudio';
 import { detectVoiceRuntime } from './voiceEnvironment';
 
-export type MicrophoneMode = 'wake' | 'conversation' | 'dictation';
+export type MicrophoneMode = 'wake' | 'conversation' | 'dictation' | 'playback';
 export interface MicrophoneLease { mode: MicrophoneMode; isCurrent: () => boolean; release: () => void }
 type Owner = { lease: MicrophoneLease; stop: () => Promise<void> };
 export const audioCancelled = () => new DOMException('Voice session was cancelled.', 'AbortError');

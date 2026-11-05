@@ -4,6 +4,7 @@ let audio;
 const originalAudio = global.Audio;
 const originalFetch = global.fetch;
 beforeEach(() => {
+  ttsService.cache.clear();
   global.Audio = jest.fn(() => {
     audio = { setAttribute: jest.fn(), play: jest.fn().mockResolvedValue(undefined), pause: jest.fn(), load: jest.fn() };
     return audio;
@@ -37,4 +38,26 @@ test('synthesis that resolves after cancellation cannot start stale audio', asyn
   respond({ ok: true, blob: async () => new Blob(['audio']) });
   await playback;
   expect(global.Audio).not.toHaveBeenCalled();
+});
+
+
+test('Hindi synthesis selects a Hindi voice and preserves spoken Unicode', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
+  const pending = playTTS('नमस्ते, मैं AIRA हूँ।');
+  await flush();
+  const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+  expect(body.voice).toBe('hf_alpha');
+  expect(body.input).toBe('नमस्ते, मैं Aira हूँ।');
+  ttsService.stopCurrentAudio(); await pending;
+});
+test('replaying the same reply reuses synthesis only for the same identity', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
+  let pending = playTTS('AIRA can help', undefined, { userId: 'u', companyId: 'c' });
+  await flush(); audio.onended(); await pending;
+  pending = playTTS('AIRA can help', undefined, { userId: 'u', companyId: 'c' });
+  await flush(); audio.onended(); await pending;
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  pending = playTTS('AIRA can help', undefined, { userId: 'other', companyId: 'c' });
+  await flush(); audio.onended(); await pending;
+  expect(global.fetch).toHaveBeenCalledTimes(2);
 });

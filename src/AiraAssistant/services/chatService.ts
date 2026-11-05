@@ -198,7 +198,7 @@ export function dispatch(
     loadingMessage: loadingMsg,
     run: async () => {
       try {
-        const response = await callAssistant(chatInput, auth);
+        const response = await callAssistant(chatInput, auth, ctx.lang);
         const { messages, contextPatch } = mapResponse(response, chatInput);
         return { messages, contextPatch };
       } catch {

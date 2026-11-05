@@ -1,0 +1,26 @@
+AIRA – NEW APPLICATION TESTING NOTES
+
+Test Observations and Identified Issues
+
+1.  Slow Response / Processing Time
+    -   AIRA takes more time to process requests and prepare responses
+        than expected.
+    -   The response time is noticeably long each time AIRA speaks back.
+2.  Name Pronunciation
+    -   When asked, “What should I call you?”, AIRA spells out the
+        individual letters “A-I-R-A” instead of responding with the name
+        “Aira”.
+3.  Hindi Language Response
+    -   AIRA does not respond in Hindi when asked to speak in Hindi.
+4.  Ask by Voice – Functionality Issues
+    -   The Ask by Voice feature is not functioning properly.
+    -   A “Failed to push token” message is generated when notification
+        permission is denied.
+    -   The chatbot UI appears over the phone’s notification bar.
+    -   The Listen button is visible, but tapping it does not trigger
+        any response.
+    -   When the app is opened for the first time, voice activation
+        takes some time. As a result, AIRA may not capture what is being
+        said during this initial period.
+    -   AIRA responds to voice input, but the processing time is longer
+        than expected.

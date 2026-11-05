@@ -85,3 +85,49 @@ Physical device acceptance checks:
 
 Local checks validate the resolved manifest, Android JS export, web build and
 voice regressions. They do not substitute for microphone tests on a physical phone.
+
+
+## Application testing fixes (2026-11-05)
+
+Deploy the web build together with updated Android and iOS wrappers. The wrappers
+now apply native top/bottom safe-area insets and advertise `Air2oSafeArea/1` so the
+web fallback does not add another status-bar inset. Notification denial is optional
+and no longer raises an error alert. Supply Android Firebase configuration through
+the usual build setup; the supplied Android checkout lacks google-services.json.
+
+Listen now uses the same server synthesis as automatic replies, with loading,
+stop, and visible errors. Browser playback acquires exclusive microphone ownership;
+iOS asks `AIRA_PREPARE_PLAYBACK` and waits for `playbackReady` after native capture
+release. This handshake requires the updated iOS wrapper. Wake is suspended during
+message playback and restored afterward; manual voice activation can interrupt it.
+
+Cold activation waits for VAD readiness with a 15-second limit and cancellation.
+The obsolete deferred-start effect was removed to prevent double microphone starts.
+Preparing microphone is shown until capture starts. The arbitrary 100ms wait after
+capture start was removed; socket verification and Android release delays remain.
+
+Language switches update the conversation state for subsequent turns. Chat requests
+preserve the original message/identity and add language, response_language and
+instructions. The n8n workflow must consume these fields in its model prompt.
+Browser STT adds the selected language as a URL query parameter without changing
+binary audio frames; the deployed STT server must accept/honor it (or autodetect).
+iOS uses the selected native recognition locale. Hindi-script synthesis selects
+hf_alpha, configurable with REACT_APP_HINDI_TTS_VOICE. The deployed Kokoro service
+must have Hindi language support and this voice installed. Source reference:
+https://huggingface.co/hexgrad/Kokoro-82M/blob/main/voices/hf_alpha.pt
+These server deployments are outside the supplied app source folders and were not
+changed or verified with authenticated production requests.
+
+Speech input normalizes AIRA/A-I-R-A to Aira without changing chat records.
+Repeated synthesized replies reuse a bounded memory cache (four blobs, maximum
+2 MiB each), keyed by text and authenticated identity. VoiceTiming console events
+report activation-ready-ms, chat-response-ms and synthesis-ready-ms. They contain
+stage durations, not user text. Compare cold/warm trials separately; no numerical
+backend speed improvement is claimed without physical-device/network measurements.
+
+Acceptance on desktop web, Android and iPhone: fresh launch and permission denial;
+Ask by Voice card and mic button; Listen/start/stop/error; ten wake/conversation/
+dictation/replay cycles; background/foreground; keyboard and orientation; English,
+Hindi and Arabic; name pronunciation; first-turn and later-turn timing. Check both
+customer and delegate headers for doubled top padding. Native JS exports and tests
+do not prove real microphone, audio routing, pronunciation or screen-inset behavior.
