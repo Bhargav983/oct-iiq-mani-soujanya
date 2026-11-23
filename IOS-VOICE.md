@@ -120,7 +120,10 @@ changed or verified with authenticated production requests.
 
 Speech input normalizes AIRA/A-I-R-A to Aira without changing chat records.
 Repeated synthesized replies reuse a bounded memory cache (four blobs, maximum
-2 MiB each), keyed by text and authenticated identity. VoiceTiming console events
+2 MiB each), keyed by text and authenticated identity. Synthesized audio now plays
+progressively: the response body is consumed as it arrives and decoded PCM is
+scheduled on the Web Audio graph, so playback starts on the first chunk rather
+than after the full download. VoiceTiming console events
 report activation-ready-ms, chat-response-ms and synthesis-ready-ms. They contain
 stage durations, not user text. Compare cold/warm trials separately; no numerical
 backend speed improvement is claimed without physical-device/network measurements.

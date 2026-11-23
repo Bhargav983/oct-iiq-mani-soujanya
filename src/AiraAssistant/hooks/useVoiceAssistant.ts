@@ -3,7 +3,7 @@ import { ANDROID_AUDIO_EVENT, browserAudioReady, requestAndroidAudioState } from
 import { useMicVAD } from '@ricky0123/vad-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceState } from '../types';
-import { VoiceSocket } from '../services/voiceSocket';
+import { GeminiVoiceSocket } from '../services/geminiVoiceSocket';
 import { WakeWordService } from '../services/wakeWordService';
 import { configureVoiceRuntime, voiceAssets } from '../services/voiceRuntime';
 import { audioCancelled, browserMicrophone, openBrowserMicrophone, type MicrophoneLease } from '../services/browserMicrophone';
@@ -23,7 +23,7 @@ function isIosNativeApp(): boolean {
 
 const VAD_ASSET_PATH = voiceAssets.vadPath;
 const ONNX_WASM_PATH = voiceAssets.ortPath;
-const DEFAULT_STT_URL = 'wss://n8ncustomer.air2o.net/ws/stt';
+const DEFAULT_STT_URL = '/api/aira-voice/stt';
 const WAKE_WORD_KEYWORD_PATH = process.env.REACT_APP_OPENWAKEWORD_KEYWORD_PATH || `${voiceAssets.wakePath}hey_aira.onnx`;
 const WAKE_WORD_MODEL_PATH = process.env.REACT_APP_OPENWAKEWORD_MODEL_PATH || voiceAssets.wakePath;
 
@@ -133,7 +133,7 @@ export function useVoiceAssistant(
   const [audioLevel, setAudioLevel] = useState(0);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
 
-  const socketRef = useRef<VoiceSocket | null>(null);
+  const socketRef = useRef<GeminiVoiceSocket | null>(null);
   const wakeWordRef = useRef<WakeWordService | null>(null);
   const wakeWordServiceRef = useRef<WakeWordService | null>(null);
   /**
@@ -344,11 +344,22 @@ export function useVoiceAssistant(
       socketRef.current = null;
     }
 
-    const endpoint = new URL(process.env.REACT_APP_STT_SOCKET_URL || DEFAULT_STT_URL);
+    const endpoint = new URL(process.env.REACT_APP_GEMINI_STT_URL || DEFAULT_STT_URL, window.location.origin);
     endpoint.searchParams.set('language', _lang);
     const url = endpoint.toString();
 
-    console.log('🔵 [VoiceAssistant] Creating NEW VoiceSocket', {
+    // Dev proxy quirk: http-proxy-middleware only subscribes to `upgrade` events on its
+    // first regular HTTP request, so a cold WebSocket connect hangs until timeout.
+    // A HEAD through the same path registers the handler first. No-op in production.
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        await fetch(url.replace(/^ws/, 'http'), { method: 'HEAD' });
+      } catch {
+        // best-effort warm-up; socket connect has its own error handling
+      }
+    }
+
+    console.log('🔵 [VoiceAssistant] Creating Gemini speech transport', {
       url,
       userId: authRef.current.userId,
       companyId: authRef.current.companyId,
@@ -369,7 +380,7 @@ export function useVoiceAssistant(
         reject(error);
       };
 
-      const socket = new VoiceSocket({
+      const socket = new GeminiVoiceSocket({
         url,
         sampleRate: SAMPLE_RATE,
         auth: {
@@ -400,7 +411,7 @@ export function useVoiceAssistant(
               try {
                 await pauseVad();
                 if (!current()) return;
-                console.log('📤 [STT] Sending final transcript to n8n:', finalText);
+                console.log('📤 [STT] Sending final transcript to assistant:', finalText);
                 const result = await onResultRef.current(finalText);
                 if (!current()) return;
 
@@ -459,10 +470,8 @@ export function useVoiceAssistant(
         onError: (message) => {
           if (isUnmountedRef.current) return;
           console.error('🔴 [VoiceAssistant] VoiceSocket error:', message);
-          if (shouldListenRef.current) {
-            setErrorMessage(message);
-            updateState('ERROR');
-          }
+          setErrorMessage(message);
+          updateState('ERROR');
           safeReject(new Error(message));
         },
         onStateChange: (socketState) => {
@@ -547,9 +556,7 @@ export function useVoiceAssistant(
   const onSpeechEndRef = useRef(() => {});
 
   /**
-   * Drains the pre-roll ring buffer to the socket in capture order. Only
-   * called once the socket is strictly OPEN — frames sent here are either
-   * delivered immediately or queued inside VoiceSocket for the OPEN flush.
+   * Drains the pre-roll ring buffer to the speech transport in capture order.
    */
   const flushPreRoll = useCallback(() => {
     const buffered = preRollBufferRef.current;
@@ -650,7 +657,7 @@ export function useVoiceAssistant(
       const audioFrame = resampleTo16k(frame, SAMPLE_RATE);
 
       if (streamingRef.current) {
-        // Actively streaming: send live frames to the STT socket.
+        // Buffer live frames for Gemini transcription at utterance end.
         socketRef.current.sendAudioChunk(audioFrame);
       } else {
         // Session armed but speech not yet detected: keep a rolling window
@@ -838,22 +845,20 @@ export function useVoiceAssistant(
           setErrorMessage(null);
           updateTranscript('');
           updateState('LISTENING');
-          // faster-whisper-server closes the WebSocket (code 1000) after the
-          // previous turn's final transcript. Re-create the socket if the
-          // existing one is no longer OPEN before VAD starts streaming.
+          // Reconnect the utterance transport if it was disconnected before
+          // VAD starts capturing the next turn.
           if (!socketRef.current || !socketRef.current.isConnected()) {
-            console.log('🔄 [VoiceAssistant] Socket closed/missing — re-creating VoiceSocket');
+            console.log('🔄 [VoiceAssistant] Speech transport disconnected — reconnecting');
             await createSocket();
           } else {
-            console.log('♻️ [VoiceAssistant] Reusing existing OPEN socket');
+            console.log('♻️ [VoiceAssistant] Reusing speech transport');
           }
           if (isUnmountedRef.current) return;
-          // Strict handshake: wait for the STT WebSocket to be fully OPEN
-          // (with a small grace period for the browser to release the
-          // wake-word mic track) before MicVAD opens its own stream.
+          // Allow the browser to release the wake-word mic track before
+          // MicVAD opens its own stream.
           setTimeout(() => {
             if (isUnmountedRef.current) return;
-            console.log('🟡 [VAD:START] Waiting for socket OPEN before starting MicVAD...');
+            console.log('🟡 [VAD:START] Starting MicVAD after wake-word release...');
             void (async () => {
               const socketOpen = await ensureSocketOpen();
               if (!socketOpen || isUnmountedRef.current) {
@@ -962,9 +967,8 @@ export function useVoiceAssistant(
    * IMPORTANT: reads VAD state through vadRef (always the latest instance)
    * and WAITS for MicVAD to finish re-creating itself instead of bailing.
    * Bailing on vad.loading cleared shouldListenRef while the [VAD:READY]
-   * effect raced ahead and started the mic with streaming disabled — the
-   * server then received no audio and closed the socket (code 1000),
-   * killing every subsequent turn.
+   * effect raced ahead and started the mic with utterance capture disabled,
+   * preventing the next transcript from being submitted.
    */
   const resumeListeningAfterTurn = useCallback(async () => {
     if (isUnmountedRef.current || !microphoneRef.current?.isCurrent()) return;
@@ -977,10 +981,9 @@ export function useVoiceAssistant(
     updateTranscript('');
     updateState('IDLE');
     try {
-      // faster-whisper-server closes the WebSocket after every final
-      // transcript — always verify/re-open before VAD streams again.
+      // Ensure the utterance transport is connected before listening again.
       if (!socketRef.current || !socketRef.current.isConnected()) {
-        console.log('🔄 [MultiTurn] Socket closed — re-creating VoiceSocket');
+        console.log('🔄 [MultiTurn] Speech transport disconnected — reconnecting');
         await createSocket();
       }
       if (generation !== sessionGenerationRef.current) return;

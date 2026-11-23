@@ -1,14 +1,6 @@
 import { speechText, speechLanguage } from './voiceLanguage';
 /**
- * TTS Service for playing Kokoro TTS responses from n8n
- *
- * Two backends are supported, selected per-utterance by script:
- *   - Kokoro   — default English TTS at /v1/tts
- *   - Nabra    — Arabic TTS at /v1/audio/speech, used when the text
- *                contains Arabic Unicode (see isArabicText). If the
- *                Nabra endpoint fails for any reason the call falls
- *                through to Kokoro so a single failed request never
- *                silences the assistant.
+ * Gemini TTS playback through the server-side AiraAssistant speech gateway.
  */
 
 import type { AuthParamsInput } from './api';
@@ -18,25 +10,23 @@ interface TTSResponse {
   audioUrl: string;
 }
 
+/**
+ * Gateway WAV is mono 16-bit PCM; the rate is read from the fmt chunk so a
+ * change server-side cannot desync playback.
+ */
+const FALLBACK_SAMPLE_RATE = 24000;
+/** Start playback once this much PCM is buffered (~0.4s at 24 kHz). */
+const PREFETCH_BYTES = 19200;
+/** Decode at most this many bytes per block so a large reply cannot jank the UI. */
+const CHUNK_BYTES = 65536;
+/** Stop buffering ahead of the playhead beyond this (~8s at 24 kHz). */
+const MAX_BUFFER_BYTES = 384000;
+
 // ---------------------------------------------------------------------------
 // Endpoint configuration
 // ---------------------------------------------------------------------------
 
-/**
- * Default English TTS backend. Overridable at build time via
- * REACT_APP_KOKORO_TTS_URL for staging / on-prem environments.
- */
-const KOKORO_TTS_URL =
-  process.env.REACT_APP_KOKORO_TTS_URL || 'https://n8ncustomer.air2o.net/v1/tts';
-
-/**
- * Arabic TTS backend. Used only when `isArabicText(text)` is true; on
- * any failure we log and fall through to the Kokoro endpoint so a
- * downstream Nabra outage cannot silence the assistant.
- */
-const NABRA_TTS_URL =
-  process.env.REACT_APP_NABRA_TTS_URL ||
-  'https://n8ncustomer.air2o.net/v1/audio/speech';
+const GEMINI_TTS_URL = process.env.REACT_APP_GEMINI_TTS_URL || '/api/aira-voice/tts';
 
 // ---------------------------------------------------------------------------
 // Arabic script detection
@@ -44,11 +34,8 @@ const NABRA_TTS_URL =
 
 /**
  * Returns true if `text` contains any character from the Arabic Unicode
- * block (incl. Arabic Supplement and Arabic Extended-A). Used to route
- * utterances to the Nabra Arabic backend. Pure heuristic — robust enough
- * for code-switched replies where the first / dominant language decides
- * the voice, and intentionally simple so we never over-classify a
- * Latin-only reply as Arabic.
+ * block (incl. Arabic Supplement and Arabic Extended-A). Retained as a
+ * utility for AiraAssistant language-aware speech behavior.
  */
 export function isArabicText(text: string): boolean {
   if (!text) return false;
@@ -68,6 +55,14 @@ class TTSService {
     while (this.cache.size > 4) this.cache.delete(this.cache.keys().next().value!);
   }
   private synthesis: AbortController | null = null;
+  /** Live streaming playback, when the gateway response is consumed progressively. */
+  private stream: {
+    context: AudioContext;
+    sampleRate: number;
+    started: boolean;
+    /** Set when playback is stopped early so pumps bail out. */
+    stopped: boolean;
+  } | null = null;
 
   /**
    * Play TTS audio for the given text.
@@ -80,8 +75,8 @@ class TTSService {
    * @param auth             Authenticated identity for the current session.
    *                         Sourced from React <AuthContext /> via the
    *                         VoiceAssistantProvider -> useVoiceAssistant and
-   *                         forwarded into the n8n TTS request body so the
-   *                         server can attribute the synthesis to the
+   *                         forwarded into the AiraAssistant gateway request
+   *                         so the server can attribute the synthesis to the
    *                         correct customer/company. Optional so legacy
    *                         call sites (and tests) keep working; when
    *                         omitted the body still satisfies the
@@ -107,61 +102,17 @@ class TTSService {
       if (cached) { await this.playAudioBlob(cached, onPlaybackStart); return; }
       console.log('🔊 [TTS] Converting text to speech:', text.substring(0, 50) + '...');
 
-      // -----------------------------------------------------------------
-      // Language routing — Arabic replies go to Nabra first; on any
-      // failure we log and fall through to the existing Kokoro path so
-      // a Nabra outage can never silence the assistant. The Kokoro
-      // fetch, auth body, audio-element setup, and Promise lifecycle
-      // below are intentionally UNCHANGED.
-      // -----------------------------------------------------------------
-      const isArabic = isArabicText(text);
-      if (isArabic) {
-        try {
-          console.log('🌙 [TTS] Arabic script detected — routing to Nabra endpoint');
-          const nabraResponse = await fetch(NABRA_TTS_URL, {
-            signal: synthesis.signal,
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ text }),
-          });
-          if (!nabraResponse.ok) {
-            throw new Error(
-              `Nabra TTS request failed: ${nabraResponse.status} ${nabraResponse.statusText}`,
-            );
-          }
-          const nabraBlob = await nabraResponse.blob();
-          if (generation !== this.generation) return;
-          console.log('🌙 [TTS] Nabra returned audio blob:', nabraBlob.size, 'bytes');
-          this.remember(cacheKey, nabraBlob);
-          await this.playAudioBlob(nabraBlob, onPlaybackStart);
-          return;
-        } catch (nabraError) {
-          if (generation !== this.generation) return;
-          // Nabra is best-effort. Log and fall through to Kokoro so the
-          // user still hears a reply, even if it is in a non-native voice.
-          console.error(
-            '🔴 [TTS] Nabra Arabic endpoint error, falling back to Kokoro',
-            nabraError,
-          );
-        }
-      }
-
-      // Send request to Kokoro TTS server.
-      // Authenticated identity is threaded through from the late-bound
-      // authRef in useVoiceAssistant so the TTS server sees the same
-      // customer/company as the STT handshake and the n8n chat webhook.
-      const response = await fetch(KOKORO_TTS_URL, {
+      // The gateway keeps Gemini credentials server-side and returns
+      // audio/wav for the shared playback lifecycle below.
+      const response = await fetch(GEMINI_TTS_URL, {
         signal: synthesis.signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          input: text,
-          voice: speechLanguage(text) === 'hi' ? (process.env.REACT_APP_HINDI_TTS_VOICE || 'hf_alpha') : 'af_sarah',
-          response_format: 'wav',
+          text,
+          language: speechLanguage(text),
           // Same contract as the chat webhook — empty strings are sent
           // through unchanged when AuthContext has not yet hydrated.
           user_id: auth?.userId ?? '',
@@ -170,17 +121,27 @@ class TTSService {
       });
 
       if (!response.ok) {
-        throw new Error(`TTS request failed: ${response.status} ${response.statusText}`);
+        throw new Error(`Gemini TTS request failed: ${response.status} ${response.statusText}`);
       }
 
-      // Convert response to audio blob
+      // Stream the response into the Web Audio graph so the first synthesised
+      // bytes are audible while the rest of the reply is still downloading.
+      // The gateway sets Content-Length and buffers its synthesis, so waiting
+      // for the whole body added the full download time to time-to-first-audio.
+      // Once the body is consumed it cannot be re-read, so a streamed response
+      // never falls back to the blob path.
+      if (response.body && typeof AudioContext !== 'undefined') {
+        await this.playStreamingWav(response, generation, onPlaybackStart, cacheKey, started);
+        return;
+      }
+
+      // Fallback: no readable stream (or unsupported browser) — old blob path.
       const audioBlob = await response.blob();
       if (generation !== this.generation) return;
       console.log('🔊 [TTS] Received audio blob:', audioBlob.size, 'bytes');
 
       // Hand off to the shared audio-element / Promise lifecycle.
-      // The Kokoro fetch above is intentionally unchanged; everything
-      // from this point on is identical for the Nabra and Kokoro paths.
+      // Keep audio lifecycle and cancellation behavior unchanged.
       this.remember(cacheKey, audioBlob);
       console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - started));
       await this.playAudioBlob(audioBlob, onPlaybackStart);
@@ -194,14 +155,187 @@ class TTSService {
   }
 
   /**
-   * Shared audio-element setup + playback. Used by BOTH the Kokoro and
-   * Nabra paths so they share a single implementation of the
-   * <audio> element wiring, mobile autoplay compliance, and the
-   * `new Promise<void>((resolve, reject) => …)` wrapper that holds the
+   * Progressive playback of a WAV response.
+   *
+   * The gateway returns PCM WAV (`fmt` chunk, 16-bit). PCM can be decoded
+   * incrementally, so each downloaded chunk is scheduled on the audio graph
+   * instead of waiting for the complete file. Blocks are chained at the exact
+   * end time of the previous one so the reply plays as one continuous stream.
+   */
+  private async playStreamingWav(
+    response: Response,
+    generation: number,
+    onPlaybackStart?: () => void,
+    cacheKey?: string,
+    startedAt?: number,
+  ): Promise<void> {
+    const body = response.body!;
+    const context = new AudioContext();
+    const session = { context, sampleRate: FALLBACK_SAMPLE_RATE, started: false, stopped: false };
+    this.stream = session;
+    // Register for the global teardown that suspends voice audio contexts.
+    const voiceWindow = window as Window & { __airaVoiceAudioContexts__?: Set<AudioContext> };
+    (voiceWindow.__airaVoiceAudioContexts__ ??= new Set()).add(context);
+    if (context.state === 'suspended') void context.resume().catch(() => undefined);
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const settle = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        voiceWindow.__airaVoiceAudioContexts__?.delete(context);
+        if (this.stream === session) this.stream = null;
+        if (error) reject(error);
+        else resolve();
+      };
+
+      const reader = body.getReader();
+      let carry = new Uint8Array();
+      let parsedHeader = false;
+      let dataRemaining = 0;
+      /** Raw response bytes, retained so a repeat of this reply can be replayed. */
+      const received: Uint8Array[] = [];
+      /** End of already-scheduled audio on the context timeline. */
+      let scheduledUntil = 0;
+      let scheduledSamples = 0;
+      let lastSource: AudioBufferSourceNode | null = null;
+      let pumping = false;
+      let pending: Float32Array[] = [];
+      let pendingSamples = 0;
+      /** True once the response body is fully drained; playback may still be running. */
+      let bodyDone = false;
+      /** Set when playback ends before the body finished, so the drain can settle. */
+      let playbackEnded = false;
+
+      /** Schedules decoded PCM immediately after whatever is already queued. */
+      const schedule = (samples: Float32Array) => {
+        if (!samples.length || session.stopped) return;
+        const rate = session.sampleRate;
+        const buffer = context.createBuffer(1, samples.length, rate);
+        buffer.copyToChannel(samples, 0);
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        // Seamless chaining: start exactly when the previous block ends.
+        const startAt = Math.max(scheduledUntil, context.currentTime);
+        source.start(startAt);
+        scheduledUntil = startAt + samples.length / rate;
+        scheduledSamples += samples.length;
+        lastSource = source;
+        source.onended = () => {
+          if (source !== lastSource || session.stopped) return;
+          // Last scheduled block finished. If the body is still downloading
+          // (stalled mid-reply), wait for the drain to settle the turn so the
+          // caller does not move on and cut the remaining audio off.
+          console.log('🔊 [TTS] Streaming playback completed');
+          this.finishPlayback = null;
+          playbackEnded = true;
+          if (bodyDone) {
+            void context.close().catch(() => undefined);
+            settle();
+          }
+        };
+        if (!session.started) {
+          session.started = true;
+          if (startedAt !== undefined) {
+            console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - startedAt));
+          }
+          console.log('🔊 [TTS] Streaming playback started');
+          onPlaybackStart?.();
+        }
+      };
+
+      /** Buffers PCM until enough has arrived to start playback without underrun. */
+      const enqueue = (samples: Float32Array) => {
+        if (!samples.length || session.stopped) return;
+        pending.push(samples);
+        pendingSamples += samples.length;
+        if (pendingSamples * 2 >= PREFETCH_BYTES) flushPending();
+      };
+
+      const flushPending = () => {
+        if (!pending.length) return;
+        const merged = concatFloat(pending);
+        pending = [];
+        pendingSamples = 0;
+        schedule(merged);
+      };
+
+      const pump = async (): Promise<void> => {
+        if (pumping) return;
+        pumping = true;
+        try {
+          while (!session.stopped && generation === this.generation) {
+            const { done, value } = await reader.read();
+            if (done || !value?.length) break;
+            received.push(value);
+            carry = concatBytes(carry, value);
+            if (!parsedHeader) {
+              const header = parseWavPrefix(carry);
+              if (header.dataStart < 0) continue; // need more bytes for the header
+              if (header.sampleRate) session.sampleRate = header.sampleRate;
+              dataRemaining = header.dataSize;
+              carry = carry.subarray(header.dataStart);
+              parsedHeader = true;
+            }
+            // Keep the carry 16-bit aligned: a network chunk can end mid-sample,
+            // and decoding an odd-length block would pair each byte with the
+            // wrong neighbour and turn the rest of the reply into noise.
+            const available = Math.min(carry.length - (carry.length % 2), dataRemaining);
+            if (available > 0) {
+              const block = carry.subarray(0, available);
+              carry = carry.subarray(available);
+              dataRemaining -= available;
+              for (const piece of splitPcm(block)) enqueue(piece);
+            }
+            // Bound ahead-of-playhead buffering so a fast download cannot balloon memory.
+            while (session.started && !session.stopped && generation === this.generation
+              && (scheduledUntil - context.currentTime) * session.sampleRate * 2 > MAX_BUFFER_BYTES) {
+              await new Promise(r => setTimeout(r, 50));
+            }
+          }
+          if (session.stopped || generation !== this.generation) return;
+          // Body drained: flush whatever is still buffered so nothing is cut off.
+          flushPending();
+          if (cacheKey && received.length) this.remember(cacheKey, new Blob(received, { type: 'audio/wav' }));
+          if (!session.started) {
+            // Short reply: the whole body arrived before the prefetch threshold.
+            if (!scheduledSamples) { settle(); return; }
+            session.started = true;
+            if (startedAt !== undefined) {
+              console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - startedAt));
+            }
+            console.log('🔊 [TTS] Streaming playback started');
+            onPlaybackStart?.();
+          }
+          bodyDone = true;
+          if (!lastSource || playbackEnded) {
+            void context.close().catch(() => undefined);
+            settle();
+            return;
+          }
+          // Playback is still running; the last source's onended settles the turn.
+        } catch (error) {
+          session.stopped = true;
+          try { lastSource?.stop(); } catch { /* not started */ }
+          void context.close().catch(() => undefined);
+          settle(error);
+        } finally {
+          pumping = false;
+        }
+      };
+
+      void pump();
+      this.finishPlayback = () => settle();
+    });
+  }
+
+  /**
+   * Shared audio-element setup + playback keeps mobile autoplay behavior,
+   * the <audio> element wiring, and the Promise wrapper that holds the
    * UI in the SPEAKING state until playback ends.
    *
-   * IMPORTANT: this wrapper is intentionally preserved verbatim from
-   * the original Kokoro-only implementation. Do NOT alter its lifecycle
+   * IMPORTANT: this wrapper keeps the existing lifecycle
    * (resolve on `onended`, reject on `onerror` / play() rejection) — the
    * voice overlay's "speaking" UI depends on the promise not resolving
    * until the audio actually finishes.
@@ -268,8 +402,20 @@ class TTSService {
     this.synthesis?.abort();
     this.synthesis = null;
     const finish = this.finishPlayback;
+    this.stopStream();
     this.cleanupAudio();
     finish?.();
+  }
+
+  /** Tear down a live streaming playback session. */
+  private stopStream(): void {
+    const session = this.stream;
+    if (!session) return;
+    session.stopped = true;
+    // Disconnecting the destination silences every already-scheduled block at
+    // once; closing the context stops the timeline immediately.
+    void session.context.close().catch(() => undefined);
+    this.stream = null;
   }
 
   /**
@@ -296,8 +442,58 @@ class TTSService {
    * Check if TTS is currently playing
    */
   public isPlaying(): boolean {
+    if (this.stream) return true;
     return this.currentAudio !== null && !this.currentAudio.paused && !this.currentAudio.ended;
   }
+}
+
+/** Reads the WAV `fmt`/`data` chunk header from a partial byte buffer. */
+function parseWavPrefix(bytes: Uint8Array): { sampleRate: number | null; dataStart: number; dataSize: number } {
+  if (bytes.length < 44) return { sampleRate: null, dataStart: -1, dataSize: 0 };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let sampleRate: number | null = null;
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const id = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+    if (id === 'fmt ' && body + 16 <= bytes.length) {
+      const rate = view.getUint32(body + 4, true);
+      if (rate > 0) sampleRate = rate;
+    }
+    if (id === 'data') return { sampleRate, dataStart: body, dataSize: size };
+    offset = body + size + (size % 2);
+  }
+  return { sampleRate, dataStart: -1, dataSize: 0 };
+}
+
+/** Splits raw PCM16 bytes into decode-sized blocks. */
+function splitPcm(bytes: Uint8Array): Float32Array[] {
+  const out: Float32Array[] = [];
+  const usable = bytes.length - (bytes.length % 2);
+  for (let start = 0; start < usable; start += CHUNK_BYTES) {
+    const end = Math.min(start + CHUNK_BYTES, usable);
+    const block = bytes.subarray(start, end);
+    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+    const samples = new Float32Array(block.length / 2);
+    for (let i = 0; i < samples.length; i += 1) samples[i] = view.getInt16(i * 2, true) / 0x8000;
+    out.push(samples);
+  }
+  return out;
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const merged = new Uint8Array(left.length + right.length);
+  merged.set(left); merged.set(right, left.length);
+  return merged;
+}
+
+function concatFloat(parts: Float32Array[]): Float32Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const merged = new Float32Array(total);
+  let offset = 0;
+  for (const part of parts) { merged.set(part, offset); offset += part.length; }
+  return merged;
 }
 
 // Export singleton instance

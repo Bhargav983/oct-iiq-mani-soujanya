@@ -1,4 +1,4 @@
-import { VoiceSocket } from '../services/voiceSocket';
+import { GeminiVoiceSocket } from '../services/geminiVoiceSocket';
 import { act, renderHook } from '@testing-library/react';
 import { useVoiceAssistant } from './useVoiceAssistant';
 import { WakeWordService } from '../services/wakeWordService';
@@ -7,7 +7,7 @@ import { browserMicrophone } from '../services/browserMicrophone';
 import { playTTS } from '../services/ttsService';
 import { useInlineDictation } from './useInlineDictation';
 const mockSockets = [];
-jest.mock('../services/voiceSocket', () => ({ VoiceSocket: jest.fn() }));
+jest.mock('../services/geminiVoiceSocket', () => ({ GeminiVoiceSocket: jest.fn() }));
 jest.mock('../services/wakeWordService', () => ({ WakeWordService: jest.fn() }));
 jest.mock('@ricky0123/vad-react', () => {
   const vad = { loading: false, listening: false, errored: null, start: jest.fn(), pause: jest.fn(), destroy: jest.fn() };
@@ -20,7 +20,7 @@ jest.mock('../services/ttsService', () => ({ ttsService: { stopCurrentAudio: jes
 beforeEach(() => {
   jest.clearAllMocks(); mockSockets.length = 0;
   useMicVAD({}).loading = false;
-  VoiceSocket.mockImplementation(config => {
+  GeminiVoiceSocket.mockImplementation(config => {
     const socket = { config, connect: () => config.onStateChange('CONNECTED'), getState: () => 'CONNECTED', isConnected: () => true,
       disconnect: jest.fn(), endUtterance: jest.fn(), whenConnected: async () => {} };
     mockSockets.push(socket); return socket;
