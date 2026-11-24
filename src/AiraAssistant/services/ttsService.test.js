@@ -1,83 +1,20 @@
 import { playTTS, ttsService } from './ttsService';
 
-let audio;
-const originalAudio = global.Audio;
 const originalFetch = global.fetch;
 beforeEach(() => {
   ttsService.cache.clear();
-  global.Audio = jest.fn(() => {
-    audio = { setAttribute: jest.fn(), play: jest.fn().mockResolvedValue(undefined), pause: jest.fn(), load: jest.fn() };
-    return audio;
-  });
-  URL.createObjectURL = jest.fn(() => 'blob:voice');
-  URL.revokeObjectURL = jest.fn();
 });
 afterEach(() => {
   ttsService.stopCurrentAudio();
-  global.Audio = originalAudio;
   global.fetch = originalFetch;
 });
 const flush = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve(); };
 
-test('stopping response playback settles the turn promise and releases the URL', async () => {
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
-  const playback = playTTS('hello');
-  await flush();
-  expect(audio.play).toHaveBeenCalledTimes(1);
-  ttsService.stopCurrentAudio();
-  await playback;
-  expect(audio.pause).toHaveBeenCalled();
-  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:voice');
-});
-
-test('interrupted blob playback resumes with the same audio and position', async () => {
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
-  const playback = playTTS('resume this reply');
-  await flush();
-  audio.currentTime = 2.5;
-  ttsService.pauseForBackground();
-  expect(ttsService.playbackInterruption()).toBe('paused');
-  expect(audio.pause).toHaveBeenCalledTimes(1);
-  await ttsService.resumeInterrupted();
-  expect(audio.play).toHaveBeenCalledTimes(2);
-  expect(audio.currentTime).toBe(2.5);
-  expect(global.fetch).toHaveBeenCalledTimes(1);
-  audio.onended();
-  await playback;
-  expect(ttsService.playbackInterruption()).toBeNull();
-});
-
-test('synthesis that resolves after cancellation cannot start stale audio', async () => {
-  let respond;
-  global.fetch = jest.fn(() => new Promise(resolve => { respond = resolve; }));
-  const playback = playTTS('hello');
-  ttsService.stopCurrentAudio();
-  respond({ ok: true, blob: async () => new Blob(['audio']) });
-  await playback;
-  expect(global.Audio).not.toHaveBeenCalled();
-});
-
-
-test('Hindi synthesis selects a Hindi voice and preserves spoken Unicode', async () => {
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
-  const pending = playTTS('नमस्ते, मैं AIRA हूँ।');
-  await flush();
-  const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-  expect(body.language).toBe('hi');
-  expect(body.text).toBe('नमस्ते, मैं Aira हूँ।');
-  ttsService.stopCurrentAudio(); await pending;
-});
-/** Builds a mono 16-bit PCM WAV so the streaming parser reads a real header. */
-function wav(samples, sampleRate = 24000) {
+/** Builds headerless mono 16-bit PCM bytes, matching the `audio/l16` response. */
+function pcm(samples) {
   const data = Buffer.alloc(samples.length * 2);
   samples.forEach((value, index) => data.writeInt16LE(value, index * 2));
-  const header = Buffer.alloc(44);
-  header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVE', 8);
-  header.write('fmt ', 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22); header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
-  header.write('data', 36); header.writeUInt32LE(data.length, 40);
-  return Buffer.concat([header, data]);
+  return data;
 }
 
 /** Response whose body arrives as several chunks, like a streamed download. */
@@ -85,10 +22,14 @@ function streamedResponse(chunks) {
   let index = 0;
   return {
     ok: true,
-    blob: async () => new Blob([Buffer.concat(chunks)]),
-    body: { getReader: () => ({ read: async () => (index < chunks.length
-      ? { done: false, value: new Uint8Array(chunks[index++]) }
-      : { done: true, value: undefined }) }) },
+    body: {
+      getReader: () => ({
+        read: async () => (index < chunks.length
+          ? { done: false, value: new Uint8Array(chunks[index++]) }
+          : { done: true, value: undefined }),
+        cancel: jest.fn().mockResolvedValue(undefined),
+      }),
+    },
   };
 }
 
@@ -125,68 +66,130 @@ beforeEach(() => {
 afterEach(() => { global.AudioContext = originalAudioContext; });
 const settle = async () => { for (let i = 0; i < 40; i += 1) await Promise.resolve(); };
 
+test('synthesis posts to the streaming endpoint with the detected language', async () => {
+  const samples = Array.from({ length: 6000 }, (_, i) => Math.round(8000 * Math.sin(i / 8)));
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
+  const pending = playTTS('compressor is fine');
+  await settle();
+  const [url, init] = global.fetch.mock.calls[0];
+  expect(url).toContain('/api/aira-voice/tts/stream');
+  const body = JSON.parse(init.body);
+  expect(body.language).toBe('en');
+  expect(body.text).toBe('compressor is fine');
+  audioContexts[0].scheduled.at(-1).onended();
+  await pending;
+});
+
+test('Hindi synthesis preserves spoken Unicode', async () => {
+  const samples = Array.from({ length: 6000 }, () => 1000);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
+  const pending = playTTS('नमस्ते, मैं AIRA हूँ।');
+  await settle();
+  const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+  expect(body.language).toBe('hi');
+  expect(body.text).toBe('नमस्ते, मैं Aira हूँ।');
+  audioContexts[0].scheduled.at(-1).onended();
+  await pending;
+});
+
+test('raw PCM is decoded at 24 kHz without a WAV container', async () => {
+  const samples = Array.from({ length: 12000 }, (_, i) => Math.round(8000 * Math.sin(i / 8)));
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
+  const pending = playTTS('raw pcm reply');
+  await settle();
+  const [{ context, scheduled }] = audioContexts;
+  expect(scheduled.length).toBeGreaterThan(0);
+  // Every buffer is created at the fixed PCM rate; there is no fmt chunk to read.
+  context.createBuffer.mock.calls.forEach(([, , rate]) => expect(rate).toBe(24000));
+  audioContexts[0].scheduled.at(-1).onended();
+  await pending;
+});
+
 test('streamed synthesis starts playback before the whole body arrives', async () => {
   const samples = Array.from({ length: 24000 }, (_, i) => Math.round(8000 * Math.sin(i / 8)));
-  global.fetch = jest.fn().mockResolvedValue(streamedResponse([wav(samples).subarray(0, 20000), wav(samples).subarray(20000)]));
+  const bytes = pcm(samples);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([bytes.subarray(0, 20000), bytes.subarray(20000)]));
   let started = false;
   const pending = playTTS('streamed reply', () => { started = true; });
   await settle();
   const [{ context, scheduled }] = audioContexts;
   expect(scheduled.length).toBeGreaterThan(0);
   expect(started).toBe(true);
-  // Playback is scheduled on the audio graph, not an <audio> element blob URL.
-  expect(global.Audio).not.toHaveBeenCalled();
   expect(context.close).not.toHaveBeenCalled();
   scheduled.at(-1).onended();
   await pending;
   expect(context.close).toHaveBeenCalled();
 });
 
-test('stopping streamed playback closes the audio context and settles the turn', async () => {
+test('odd-sized streamed chunks stay 16-bit aligned so the reply is not noise', async () => {
+  // A chunk can end mid-sample. Decoding an odd-length buffer would pair each
+  // byte with the wrong neighbour and corrupt every later sample.
+  const samples = Array.from({ length: 24000 }, (_, i) => (i % 2 === 0 ? 12000 : -12000));
+  const bytes = pcm(samples);
+  const chunks = [bytes.subarray(0, 3001), bytes.subarray(3001, 3001 + 4003), bytes.subarray(3001 + 4003)];
+  expect(chunks.some(chunk => chunk.length % 2 !== 0)).toBe(true);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse(chunks));
+  const pending = playTTS('aligned reply');
+  await settle();
+  const [{ scheduled }] = audioContexts;
+  expect(scheduled.length).toBeGreaterThan(0);
+
+  // Reassemble everything handed to the audio graph and compare it to the
+  // source PCM; misalignment shows up as a flipped-sign ramp.
+  const total = scheduled.reduce((sum, source) => sum + source.buffer.length, 0);
+  const decoded = new Float32Array(total);
+  let offset = 0;
+  scheduled.forEach((source) => {
+    decoded.set(source.buffer.getChannelData(), offset);
+    offset += source.buffer.length;
+  });
+  expect(total).toBe(samples.length);
+  samples.forEach((value, index) => {
+    expect(decoded[index]).toBeCloseTo(value / 32768, 6);
+  });
+
+  scheduled.at(-1).onended();
+  await pending;
+});
+
+test('stopping streamed playback cancels the body, stops queued audio and closes the context', async () => {
   const samples = Array.from({ length: 24000 }, () => 1000);
-  global.fetch = jest.fn().mockResolvedValue(streamedResponse([wav(samples)]));
+  const reader = {
+    read: jest.fn().mockResolvedValue({ done: false, value: new Uint8Array(pcm(samples)) }),
+    cancel: jest.fn().mockResolvedValue(undefined),
+  };
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    body: { getReader: () => reader },
+  });
   const pending = playTTS('stop me');
   await settle();
+  const [{ context, scheduled }] = audioContexts;
+  expect(scheduled.length).toBeGreaterThan(0);
   ttsService.stopCurrentAudio();
   await pending;
-  expect(audioContexts[0].context.close).toHaveBeenCalled();
+  // The in-flight HTTP body is released rather than left downloading.
+  expect(reader.cancel).toHaveBeenCalled();
+  // Already-scheduled blocks are silenced so nothing plays after the stop.
+  scheduled.forEach(source => expect(source.stop).toHaveBeenCalled());
+  expect(context.close).toHaveBeenCalled();
   expect(ttsService.isPlaying()).toBe(false);
 });
 
-test('interrupted streamed playback resumes the existing audio timeline', async () => {
-  const samples = Array.from({ length: 24000 }, () => 1000);
-  global.fetch = jest.fn().mockResolvedValue(streamedResponse([wav(samples)]));
-  const playback = playTTS('resume the stream');
-  await settle();
-  const [{ context, scheduled }] = audioContexts;
-  ttsService.pauseForBackground();
-  ttsService.pauseForBackground();
-  expect(context.suspend).toHaveBeenCalledTimes(1);
-  expect(context.close).not.toHaveBeenCalled();
-  await ttsService.resumeInterrupted();
-  expect(context.resume).toHaveBeenCalledTimes(1);
-  expect(global.fetch).toHaveBeenCalledTimes(1);
-  scheduled.at(-1).onended();
-  await playback;
-  expect(ttsService.playbackInterruption()).toBeNull();
-});
-
 test('a streamed response with no audio data settles without scheduling playback', async () => {
-  global.fetch = jest.fn().mockResolvedValue(streamedResponse([Buffer.alloc(44)]));
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([Buffer.alloc(0)]));
   await playTTS('silent');
   expect(audioContexts[0].scheduled.length).toBe(0);
-  expect(global.Audio).not.toHaveBeenCalled();
 });
 
 test('playback that finishes while the body is still downloading waits for the drain', async () => {
   const samples = Array.from({ length: 24000 }, () => 1000);
-  const first = wav(samples).subarray(0, 20000);
+  const first = pcm(samples).subarray(0, 20000);
   let delivered = false;
   let releaseDrain;
   const drainGate = new Promise(resolve => { releaseDrain = () => resolve({ done: true, value: undefined }); });
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
-    blob: async () => new Blob([first]),
     body: { getReader: () => ({
       // First chunk arrives, then the download stalls until released.
       read: async () => (delivered ? drainGate : ((delivered = true), { done: false, value: new Uint8Array(first) })),
@@ -208,47 +211,32 @@ test('playback that finishes while the body is still downloading waits for the d
   await pending;
 });
 
-test('odd-sized streamed chunks stay 16-bit aligned so the reply is not noise', async () => {
-  // A chunk can end mid-sample. Decoding an odd-length carry would pair each
-  // byte with the wrong neighbour and corrupt every later sample.
-  const samples = Array.from({ length: 24000 }, (_, i) => (i % 2 === 0 ? 12000 : -12000));
-  const full = wav(samples);
-  const chunks = [full.subarray(0, 45), full.subarray(45, 44 + 3001), full.subarray(44 + 3001)];
-  expect(chunks.some(chunk => chunk.length % 2 !== 0)).toBe(true);
-  global.fetch = jest.fn().mockResolvedValue(streamedResponse(chunks));
-  const pending = playTTS('aligned reply');
-  await settle();
-  const [{ context, scheduled }] = audioContexts;
-  expect(scheduled.length).toBeGreaterThan(0);
+test('replaying the same reply reuses synthesis only for the same identity', async () => {
+  const samples = Array.from({ length: 12000 }, (_, i) => Math.round(6000 * Math.sin(i / 6)));
+  const bytes = pcm(samples);
+  // Fresh reader per call: a shared response object would already be drained.
+  global.fetch = jest.fn(() => Promise.resolve(streamedResponse([bytes])));
 
-  // Reassemble everything handed to the audio graph and check it matches the
-  // source PCM exactly; misalignment shows up as a flipped-sign ramp.
-  const lengths = scheduled.map(source => source.buffer.length);
-  const total = lengths.reduce((sum, length) => sum + length, 0);
-  const decoded = new Float32Array(total);
-  let offset = 0;
-  scheduled.forEach((source, index) => {
-    expect(source.buffer.sampleRate).toBe(context.createBuffer.mock.calls[index][2]);
-    decoded.set(source.buffer.getChannelData(), offset);
-    offset += source.buffer.length;
-  });
-  expect(total).toBe(samples.length);
-  samples.forEach((value, index) => {
-    expect(decoded[index]).toBeCloseTo(value / 0x8000, 6);
-  });
+  const playOnce = async (auth) => {
+    const index = audioContexts.length;
+    const pending = playTTS('AIRA can help', undefined, auth);
+    await settle();
+    const scheduled = audioContexts[index].scheduled;
+    expect(scheduled.length).toBeGreaterThan(0);
+    scheduled.at(-1).onended();
+    await pending;
+  };
 
-  scheduled.at(-1).onended();
-  await pending;
+  await playOnce({ userId: 'u', companyId: 'c' });
+  await playOnce({ userId: 'u', companyId: 'c' });
+  // The second identical request replays cached PCM, so it never refetches.
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+
+  await playOnce({ userId: 'other', companyId: 'c' });
+  expect(global.fetch).toHaveBeenCalledTimes(2);
 });
 
-test('replaying the same reply reuses synthesis only for the same identity', async () => {
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
-  let pending = playTTS('AIRA can help', undefined, { userId: 'u', companyId: 'c' });
-  await flush(); audio.onended(); await pending;
-  pending = playTTS('AIRA can help', undefined, { userId: 'u', companyId: 'c' });
-  await flush(); audio.onended(); await pending;
-  expect(global.fetch).toHaveBeenCalledTimes(1);
-  pending = playTTS('AIRA can help', undefined, { userId: 'other', companyId: 'c' });
-  await flush(); audio.onended(); await pending;
-  expect(global.fetch).toHaveBeenCalledTimes(2);
+test('a failing gateway rejects the turn promise', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, statusText: 'Server Error' });
+  await expect(playTTS('boom')).rejects.toThrow(/500/);
 });

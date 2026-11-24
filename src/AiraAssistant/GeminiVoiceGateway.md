@@ -6,7 +6,7 @@ Configure these frontend endpoint overrides in the React app's project-root `.en
 
 ```dotenv
 REACT_APP_GEMINI_STT_URL=https://testcustomer.air2o.net/api/aira-voice/stt
-REACT_APP_GEMINI_TTS_URL=https://testcustomer.air2o.net/api/aira-voice/tts
+REACT_APP_GEMINI_TTS_URL=https://testcustomer.air2o.net/api/aira-voice/tts/stream
 ```
 
 These URLs are public frontend configuration. Never put the Gemini API key in a `REACT_APP_*` variable. Rebuild and redeploy the frontend after changing them; React embeds these values at build time.
@@ -34,8 +34,10 @@ Contract details:
 
 ## Text to speech
 
-The browser posts JSON containing `text`, detected `language` (`en`, `hi`, or `ar`), `user_id`, and `company_id`. Return audio bytes with an `audio/wav` content type. The gateway should use Gemini text-to-speech and convert its response to WAV when needed. Keep the voice selection and Gemini key in the gateway configuration.
+The browser posts JSON containing `text`, detected `language` (`en`, `hi`, or `ar`), `user_id`, and `company_id` to `/api/aira-voice/tts/stream`. Keep the voice selection and Gemini key in the gateway configuration.
 
-The browser consumes the response body progressively and schedules decoded PCM on the Web Audio graph, so playback begins on the first audio chunk instead of after the whole file downloads. This requires PCM (not compressed) WAV — the `fmt` chunk is parsed for the sample rate, and each block is chained at the exact end time of the previous one. The gateway currently sets `Content-Length` and buffers its full synthesis before responding, so progressive playback only removes the download wait, not the synthesis wait.
+The response is **headerless raw Linear PCM** — `Content-Type: audio/l16;rate=24000;channels=1`, 24,000 Hz, 16-bit signed little-endian, mono — sent as `Transfer-Encoding: chunked` with no `Content-Length`. There is no `RIFF`/`fmt`/`data` container, so the browser must not use `decodeAudioData()`; it converts each `Int16` sample to `Float32` (`sample / 32768`) itself. The gateway already strips Markdown and splits text above 4,000 characters, streaming every part over one continuous response body.
+
+The browser consumes the body progressively with `response.body.getReader()` and schedules blocks on a Web Audio graph created at 24,000 Hz, so playback begins as soon as the jitter buffer fills instead of after the whole reply synthesizes. Blocks chain on a running `nextStartTime` cursor. Because a network chunk can end mid-sample, the reader keeps a 16-bit-aligned carry byte — decoding an odd-length block would pair each byte with the wrong neighbour and turn the rest of the reply into noise.
 
 The microphone, local VAD, pre-roll buffer, wake-word listener, playback controls, and conversation state remain in AiraAssistant. This repository contains the frontend contract only; the server routes must be deployed before voice requests can complete.

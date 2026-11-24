@@ -5,28 +5,36 @@ import { speechText, speechLanguage } from './voiceLanguage';
 
 import type { AuthParamsInput } from './api';
 
-interface TTSResponse {
-  blob: Blob;
-  audioUrl: string;
-}
+/**
+ * Minimal reader surface shared by the network stream and the replay cache.
+ * `cancel` releases the in-flight HTTP body when playback is stopped.
+ */
+type PcmReader = {
+  read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+  cancel?: () => Promise<void>;
+};
 
 /**
- * Gateway WAV is mono 16-bit PCM; the rate is read from the fmt chunk so a
- * change server-side cannot desync playback.
+ * Gateway TTS is headerless Linear PCM: `audio/l16` at 24 kHz, 16-bit signed
+ * little-endian, mono. There is no RIFF/fmt/data container, so the rate is a
+ * fixed constant rather than something read out of the stream.
  */
-const FALLBACK_SAMPLE_RATE = 24000;
-/** Start playback once this much PCM is buffered (~0.2s at 24 kHz). */
-const PREFETCH_BYTES = 9600;
-/** Decode at most this many bytes per block so a large reply cannot jank the UI. */
-const CHUNK_BYTES = 65536;
+const PCM_SAMPLE_RATE = 24000;
+/**
+ * Jitter buffer: hold this much decoded audio before the first block starts so
+ * an uneven first network burst cannot underrun the graph (~120 ms at 24 kHz).
+ */
+const PREFETCH_SAMPLES = 2880;
+/** Decode at most this many samples per block so a large reply cannot jank the UI. */
+const CHUNK_SAMPLES = 32768;
 /** Stop buffering ahead of the playhead beyond this (~8s at 24 kHz). */
-const MAX_BUFFER_BYTES = 384000;
+const MAX_BUFFER_SAMPLES = 192000;
 
 // ---------------------------------------------------------------------------
 // Endpoint configuration
 // ---------------------------------------------------------------------------
 
-const GEMINI_TTS_URL = process.env.REACT_APP_GEMINI_TTS_URL || '/api/aira-voice/tts';
+const GEMINI_TTS_URL = process.env.REACT_APP_GEMINI_TTS_URL || '/api/aira-voice/tts/stream';
 export const PLAYBACK_INTERRUPTION_EVENT = 'airaPlaybackInterruption';
 
 // ---------------------------------------------------------------------------
@@ -58,9 +66,6 @@ class TTSService {
     if (this.stream?.started) {
       this.setInterruption('paused');
       void this.stream.context.suspend().catch(() => undefined);
-    } else if (this.currentAudio && this.currentAudio.currentTime > 0 && !this.currentAudio.ended) {
-      this.setInterruption('paused');
-      this.currentAudio.pause();
     } else {
       this.stopCurrentAudio();
     }
@@ -72,7 +77,6 @@ class TTSService {
     this.setInterruption('resuming');
     try {
       if (this.stream) await this.stream.context.resume();
-      else await this.currentAudio?.play();
       if (generation === this.generation && this.playbackInterruption() === 'resuming') {
         this.setInterruption('resumed');
       }
@@ -81,14 +85,17 @@ class TTSService {
       throw error;
     }
   }
-  private currentAudio: HTMLAudioElement | null = null;
-  private currentAudioUrl: string | null = null;
   private finishPlayback: (() => void) | null = null;
   private generation = 0;
-  private cache = new Map<string, Blob>();
-  private remember(key: string, blob: Blob) {
-    if (blob.size > 2 * 1024 * 1024) return;
-    this.cache.set(key, blob);
+  /**
+   * Replay cache of raw PCM bytes. The stream is headerless, so the cached
+   * bytes are replayed through the same decoder as a live response rather
+   * than through an <audio> element (which needs a container).
+   */
+  private cache = new Map<string, Uint8Array>();
+  private remember(key: string, bytes: Uint8Array) {
+    if (bytes.length > 2 * 1024 * 1024) return;
+    this.cache.set(key, bytes);
     while (this.cache.size > 4) this.cache.delete(this.cache.keys().next().value!);
   }
   private synthesis: AbortController | null = null;
@@ -99,6 +106,10 @@ class TTSService {
     started: boolean;
     /** Set when playback is stopped early so pumps bail out. */
     stopped: boolean;
+    /** Cancelling releases the in-flight HTTP body. */
+    reader: PcmReader;
+    /** Every scheduled block, so a stop can silence queued audio too. */
+    sources: AudioBufferSourceNode[];
   } | null = null;
 
   /**
@@ -136,11 +147,15 @@ class TTSService {
     try {
       const cacheKey = JSON.stringify([text, auth?.userId, auth?.companyId]);
       const cached = this.cache.get(cacheKey);
-      if (cached) { await this.playAudioBlob(cached, onPlaybackStart); return; }
+      if (cached) {
+        // Replay cached PCM through the same decoder as a live response.
+        await this.playStreamingPcm(readerFromBytes(cached), generation, onPlaybackStart, started);
+        return;
+      }
       console.log('🔊 [TTS] Converting text to speech:', text.substring(0, 50) + '...');
 
-      // The gateway keeps Gemini credentials server-side and returns
-      // audio/wav for the shared playback lifecycle below.
+      // The gateway keeps Gemini credentials server-side and streams back
+      // headerless 24 kHz Linear PCM.
       const response = await fetch(GEMINI_TTS_URL, {
         signal: synthesis.signal,
         method: 'POST',
@@ -164,25 +179,10 @@ class TTSService {
 
       // Stream the response into the Web Audio graph so the first synthesised
       // bytes are audible while the rest of the reply is still downloading.
-      // The gateway sets Content-Length and buffers its synthesis, so waiting
-      // for the whole body added the full download time to time-to-first-audio.
-      // Once the body is consumed it cannot be re-read, so a streamed response
-      // never falls back to the blob path.
-      if (response.body && typeof AudioContext !== 'undefined') {
-        await this.playStreamingWav(response, generation, onPlaybackStart, cacheKey, started);
-        return;
-      }
-
-      // Fallback: no readable stream (or unsupported browser) — old blob path.
-      const audioBlob = await response.blob();
-      if (generation !== this.generation) return;
-      console.log('🔊 [TTS] Received audio blob:', audioBlob.size, 'bytes');
-
-      // Hand off to the shared audio-element / Promise lifecycle.
-      // Keep audio lifecycle and cancellation behavior unchanged.
-      this.remember(cacheKey, audioBlob);
-      console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - started));
-      await this.playAudioBlob(audioBlob, onPlaybackStart);
+      // The gateway streams chunked raw PCM with no Content-Length, so the
+      // body is the only source of audio — it must be consumed progressively
+      // and cannot be replayed from a blob.
+      await this.playStreamingPcm(response, generation, onPlaybackStart, started, cacheKey);
 
     } catch (error) {
       if (generation !== this.generation) return;
@@ -195,25 +195,49 @@ class TTSService {
   /**
    * Progressive playback of a WAV response.
    *
-   * The gateway returns PCM WAV (`fmt` chunk, 16-bit). PCM can be decoded
-   * incrementally, so each downloaded chunk is scheduled on the audio graph
-   * instead of waiting for the complete file. Blocks are chained at the exact
-   * end time of the previous one so the reply plays as one continuous stream.
+  /**
+   * Progressive playback of the raw PCM response.
+   *
+   * The gateway returns headerless `audio/l16` (24 kHz, 16-bit signed
+   * little-endian, mono) as a chunked body. There is no container, so
+   * `decodeAudioData()` cannot be used — samples are converted to `Float32`
+   * here and scheduled as they arrive.
+   *
+   * Two details keep the audio clean:
+   *   - A network chunk can end mid-sample, so the reader carries the odd byte
+   *     into the next block. Decoding an odd-length buffer would pair each
+   *     byte with the wrong neighbour and turn the rest of the reply to noise.
+   *   - Blocks are scheduled on a running `nextStartTime` cursor rather than
+   *     `currentTime`, so uneven network bursts chain seamlessly instead of
+   *     overlapping or leaving gaps.
    */
-  private async playStreamingWav(
-    response: Response,
+  private async playStreamingPcm(
+    source: Response | { getReader: () => PcmReader },
     generation: number,
     onPlaybackStart?: () => void,
-    cacheKey?: string,
     startedAt?: number,
+    cacheKey?: string,
   ): Promise<void> {
-    const body = response.body!;
-    const context = new AudioContext();
-    const session = { context, sampleRate: FALLBACK_SAMPLE_RATE, started: false, stopped: false };
+    // Structural check rather than `instanceof Response`: `Response` is not a
+    // global in every environment this module is exercised in.
+    const reader = 'getReader' in source && typeof source.getReader === 'function'
+      ? source.getReader()
+      : (source.body ?? throwNoBody()).getReader();
+
+    const context = new AudioContext({ sampleRate: PCM_SAMPLE_RATE });
+    const session = {
+      context,
+      sampleRate: PCM_SAMPLE_RATE,
+      started: false,
+      stopped: false,
+      reader,
+      sources: [] as AudioBufferSourceNode[],
+    };
     this.stream = session;
     // Register for the global teardown that suspends voice audio contexts.
     const voiceWindow = window as Window & { __airaVoiceAudioContexts__?: Set<AudioContext> };
     (voiceWindow.__airaVoiceAudioContexts__ ??= new Set()).add(context);
+    // iOS/Safari start the context suspended until a user gesture resumes it.
     if (context.state === 'suspended') void context.resume().catch(() => undefined);
 
     return new Promise<void>((resolve, reject) => {
@@ -231,19 +255,18 @@ class TTSService {
         else resolve();
       };
 
-      const reader = body.getReader();
-      let carry = new Uint8Array();
-      let parsedHeader = false;
-      let dataRemaining = 0;
-      /** Raw response bytes, retained so a repeat of this reply can be replayed. */
-      const received: Uint8Array[] = [];
-      /** End of already-scheduled audio on the context timeline. */
-      let scheduledUntil = 0;
+      /** Trailing byte of the previous chunk when a chunk ended mid-sample. */
+      let carry: number | null = null;
+      /** Audio already handed to the graph, on the context timeline. */
+      let nextStartTime = 0;
       let scheduledSamples = 0;
       let lastSource: AudioBufferSourceNode | null = null;
-      let pumping = false;
+      /** Decoded samples waiting for the jitter buffer to fill. */
       let pending: Float32Array[] = [];
       let pendingSamples = 0;
+      /** Raw response bytes, retained so a repeat of this reply can be replayed. */
+      const received: Uint8Array[] = [];
+      let receivedBytes = 0;
       /** True once the response body is fully drained; playback may still be running. */
       let bodyDone = false;
       /** Set when playback ends before the body finished, so the drain can settle. */
@@ -252,25 +275,26 @@ class TTSService {
       /** Schedules decoded PCM immediately after whatever is already queued. */
       const schedule = (samples: Float32Array) => {
         if (!samples.length || session.stopped) return;
-        const rate = session.sampleRate;
-        const buffer = context.createBuffer(1, samples.length, rate);
+        const buffer = context.createBuffer(1, samples.length, session.sampleRate);
         buffer.copyToChannel(samples, 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
         source.connect(context.destination);
-        // Seamless chaining: start exactly when the previous block ends.
-        const startAt = Math.max(scheduledUntil, context.currentTime);
+        // Seamless chaining: start exactly when the previous block ends, and
+        // never before the playhead so a slow chunk cannot schedule in the past.
+        const startAt = Math.max(nextStartTime, context.currentTime);
         source.start(startAt);
-        scheduledUntil = startAt + samples.length / rate;
+        nextStartTime = startAt + samples.length / session.sampleRate;
         scheduledSamples += samples.length;
-        playbackEnded = false;
         lastSource = source;
+        session.sources.push(source);
         source.onended = () => {
           if (source !== lastSource || session.stopped) return;
           // Last scheduled block finished. If the body is still downloading
           // (stalled mid-reply), wait for the drain to settle the turn so the
           // caller does not move on and cut the remaining audio off.
           console.log('🔊 [TTS] Streaming playback completed');
+          this.finishPlayback = null;
           playbackEnded = true;
           if (bodyDone) {
             void context.close().catch(() => undefined);
@@ -287,14 +311,6 @@ class TTSService {
         }
       };
 
-      /** Buffers PCM until enough has arrived to start playback without underrun. */
-      const enqueue = (samples: Float32Array) => {
-        if (!samples.length || session.stopped) return;
-        pending.push(samples);
-        pendingSamples += samples.length;
-        if (pendingSamples * 2 >= PREFETCH_BYTES) flushPending();
-      };
-
       const flushPending = () => {
         if (!pending.length) return;
         const merged = concatFloat(pending);
@@ -303,45 +319,59 @@ class TTSService {
         schedule(merged);
       };
 
+      /**
+       * Converts raw PCM16 bytes to Float32 samples. `carryByte` is the odd
+       * trailing byte left by the previous chunk, if any.
+       */
+      const decode = (bytes: Uint8Array, carryByte: number | null): { samples: Float32Array; carry: number | null } => {
+        // Re-align: prepend the carried byte so every pair is a real sample.
+        const aligned = carryByte === null
+          ? bytes
+          : (() => { const merged = new Uint8Array(bytes.length + 1); merged[0] = carryByte; merged.set(bytes, 1); return merged; })();
+        const usable = aligned.length - (aligned.length % 2);
+        const nextCarry = usable < aligned.length ? aligned[aligned.length - 1] : null;
+        // Copy into a fresh buffer: `subarray` results are views whose backing
+        // ArrayBufferLike is not accepted by `copyToChannel`.
+        const alignedBytes = new Uint8Array(usable);
+        alignedBytes.set(aligned.subarray(0, usable));
+        const view = new DataView(alignedBytes.buffer);
+        const samples = new Float32Array(usable / 2);
+        for (let i = 0; i < samples.length; i += 1) samples[i] = view.getInt16(i * 2, true) / 32768;
+        return { samples, carry: nextCarry };
+      };
+
       const pump = async (): Promise<void> => {
-        if (pumping) return;
-        pumping = true;
         try {
           while (!session.stopped && generation === this.generation) {
             const { done, value } = await reader.read();
             if (done || !value?.length) break;
             received.push(value);
-            carry = concatBytes(carry, value);
-            if (!parsedHeader) {
-              const header = parseWavPrefix(carry);
-              if (header.dataStart < 0) continue; // need more bytes for the header
-              if (header.sampleRate) session.sampleRate = header.sampleRate;
-              dataRemaining = header.dataSize;
-              carry = carry.subarray(header.dataStart);
-              parsedHeader = true;
-            }
-            // Keep the carry 16-bit aligned: a network chunk can end mid-sample,
-            // and decoding an odd-length block would pair each byte with the
-            // wrong neighbour and turn the rest of the reply into noise.
-            const available = Math.min(carry.length - (carry.length % 2), dataRemaining);
-            if (available > 0) {
-              const block = carry.subarray(0, available);
-              carry = carry.subarray(available);
-              dataRemaining -= available;
-              for (const piece of splitPcm(block)) enqueue(piece);
+            receivedBytes += value.length;
+            const { samples, carry: nextCarry } = decode(value, carry);
+            carry = nextCarry;
+            if (samples.length) {
+              pending.push(samples);
+              pendingSamples += samples.length;
+              // Hold the jitter buffer before the first block, then stream freely.
+              if (!session.started) {
+                if (pendingSamples >= PREFETCH_SAMPLES) flushPending();
+              } else {
+                flushPending();
+              }
             }
             // Bound ahead-of-playhead buffering so a fast download cannot balloon memory.
-            while (session.started && !session.stopped && generation === this.generation
-              && (scheduledUntil - context.currentTime) * session.sampleRate * 2 > MAX_BUFFER_BYTES) {
+            while (!session.stopped && generation === this.generation
+              && session.started
+              && (nextStartTime - context.currentTime) * session.sampleRate > MAX_BUFFER_SAMPLES) {
               await new Promise(r => setTimeout(r, 50));
             }
           }
           if (session.stopped || generation !== this.generation) return;
           // Body drained: flush whatever is still buffered so nothing is cut off.
           flushPending();
-          if (cacheKey && received.length) this.remember(cacheKey, new Blob(received, { type: 'audio/wav' }));
+          if (cacheKey && received.length) this.remember(cacheKey, flattenBytes(received, receivedBytes));
           if (!session.started) {
-            // Short reply: the whole body arrived before the prefetch threshold.
+            // Reply shorter than the jitter buffer, or the stream carried no audio.
             if (!scheduledSamples) {
               void context.close().catch(() => undefined);
               settle();
@@ -366,8 +396,6 @@ class TTSService {
           try { lastSource?.stop(); } catch { /* not started */ }
           void context.close().catch(() => undefined);
           settle(error);
-        } finally {
-          pumping = false;
         }
       };
 
@@ -379,69 +407,11 @@ class TTSService {
   /**
    * Shared audio-element setup + playback keeps mobile autoplay behavior,
    * the <audio> element wiring, and the Promise wrapper that holds the
-   * UI in the SPEAKING state until playback ends.
-   *
-   * IMPORTANT: this wrapper keeps the existing lifecycle
-   * (resolve on `onended`, reject on `onerror` / play() rejection) — the
-   * voice overlay's "speaking" UI depends on the promise not resolving
-   * until the audio actually finishes.
-   */
-  private playAudioBlob(
-    audioBlob: Blob,
-    onPlaybackStart?: () => void,
-  ): Promise<void> {
-    // Convert response to audio blob
-    const audioUrl = URL.createObjectURL(audioBlob);
-
-    // Create and configure audio element
-    this.currentAudio = new Audio(audioUrl);
-    // Mobile (iOS Safari) autoplay compliance: force inline playback
-    // so the audio does not try to take over the full screen, which
-    // would block the user gesture that triggered the utterance.
-    this.currentAudio.setAttribute('playsinline', 'true');
-    this.currentAudio.setAttribute('webkit-playsinline', 'true');
-    this.currentAudioUrl = audioUrl;
-
-    // Set up event handlers and start playback.
-    // IMPORTANT: the returned promise resolves when playback ENDS (onended),
-    // not when it starts. This lets callers (useVoiceAssistant) hold the
-    // SPEAKING state for the full playback duration — resolving at start
-    // caused updateState('IDLE') to overwrite SPEAKING within milliseconds,
-    // so the UI never showed the speaking phase or the Stop-TTS button.
-    return new Promise<void>((resolve, reject) => {
-      this.finishPlayback = resolve;
-      const audio = this.currentAudio!;
-      this.currentAudio!.onended = () => {
-        console.log('🔊 [TTS] Audio playback completed');
-        this.cleanupAudio();
-        resolve();
-      };
-
-      this.currentAudio!.onerror = (error) => {
-        console.error('🔊 [TTS] Audio playback error:', error);
-        this.cleanupAudio();
-        reject(new Error('TTS audio playback failed'));
-      };
-
-      // Start playback
-      this.currentAudio!.play()
-        .then(() => {
-          if (this.currentAudio !== audio) return;
-          console.log('🔊 [TTS] Audio playback started');
-          // Synthesis is complete — actual audible playback has begun.
-          onPlaybackStart?.();
-        })
-        .catch((playError) => {
-          if (this.currentAudio !== audio) return;
-          console.error('🔊 [TTS] Failed to start playback:', playError);
-          this.cleanupAudio();
-          reject(playError);
-        });
-    });
-  }
-
   /**
-   * Stop any currently playing audio
+   * Stop any currently playing audio and cancel any in-flight synthesis.
+   *
+   * Aborting the fetch tears down the HTTP stream immediately, so a cancelled
+   * reply stops downloading instead of buffering the rest in the background.
    */
   public stopCurrentAudio(): void {
     ++this.generation;
@@ -458,80 +428,63 @@ class TTSService {
     const session = this.stream;
     if (!session) return;
     session.stopped = true;
-    // Disconnecting the destination silences every already-scheduled block at
-    // once; closing the context stops the timeline immediately.
+    // Cancelling the reader releases the HTTP stream immediately, so a
+    // stopped reply stops downloading instead of buffering in the background.
+    session.reader.cancel?.().catch(() => undefined);
+    // Stop every scheduled block, then close the context so the timeline
+    // halts and no queued audio can still play after the user stopped it.
+    for (const source of session.sources) {
+      try { source.onended = null; source.stop(); } catch { /* not started */ }
+    }
     void session.context.close().catch(() => undefined);
     this.stream = null;
   }
 
-  /**
-   * Clean up audio resources
-   */
+  /** Reset transient playback state. */
   private cleanupAudio(): void {
     this.setInterruption(null);
     this.finishPlayback = null;
-    if (this.currentAudio) {
-      this.currentAudio.onended = null;
-      this.currentAudio.onerror = null;
-      this.currentAudio.pause();
-      this.currentAudio.src = '';
-      this.currentAudio.load();
-      this.currentAudio = null;
-    }
-
-    if (this.currentAudioUrl) {
-      URL.revokeObjectURL(this.currentAudioUrl);
-      this.currentAudioUrl = null;
-    }
   }
 
-  /**
-   * Check if TTS is currently playing
-   */
+  /** Check if TTS is currently playing. */
   public isPlaying(): boolean {
-    if (this.stream) return true;
-    return this.currentAudio !== null && !this.currentAudio.paused && !this.currentAudio.ended;
+    return this.stream !== null;
   }
 }
 
-/** Reads the WAV `fmt`/`data` chunk header from a partial byte buffer. */
-function parseWavPrefix(bytes: Uint8Array): { sampleRate: number | null; dataStart: number; dataSize: number } {
-  if (bytes.length < 44) return { sampleRate: null, dataStart: -1, dataSize: 0 };
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let sampleRate: number | null = null;
-  let offset = 12;
-  while (offset + 8 <= bytes.length) {
-    const id = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
-    const size = view.getUint32(offset + 4, true);
-    const body = offset + 8;
-    if (id === 'fmt ' && body + 16 <= bytes.length) {
-      const rate = view.getUint32(body + 4, true);
-      if (rate > 0) sampleRate = rate;
-    }
-    if (id === 'data') return { sampleRate, dataStart: body, dataSize: size };
-    offset = body + size + (size % 2);
-  }
-  return { sampleRate, dataStart: -1, dataSize: 0 };
+/** Throws the error used when a response carries no readable body. */
+function throwNoBody(): never {
+  throw new Error('Gemini TTS response has no readable body');
 }
 
-/** Splits raw PCM16 bytes into decode-sized blocks. */
-function splitPcm(bytes: Uint8Array): Float32Array[] {
-  const out: Float32Array[] = [];
-  const usable = bytes.length - (bytes.length % 2);
-  for (let start = 0; start < usable; start += CHUNK_BYTES) {
-    const end = Math.min(start + CHUNK_BYTES, usable);
-    const block = bytes.subarray(start, end);
-    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-    const samples = new Float32Array(block.length / 2);
-    for (let i = 0; i < samples.length; i += 1) samples[i] = view.getInt16(i * 2, true) / 0x8000;
-    out.push(samples);
-  }
-  return out;
+/**
+ * Wraps cached PCM bytes in a reader so a replay flows through the same
+ * streaming decoder as a live response.
+ */
+function readerFromBytes(bytes: Uint8Array): { getReader: () => PcmReader } {
+  return {
+    getReader: () => {
+      let offset = 0;
+      return {
+        read: async () => {
+          if (offset >= bytes.length) return { done: true, value: undefined };
+          // Deliver in network-sized slices so the jitter-buffer and
+          // back-pressure paths behave exactly as they do for a live stream.
+          const end = Math.min(offset + CHUNK_SAMPLES * 2, bytes.length);
+          const value = bytes.subarray(offset, end);
+          offset = end;
+          return { done: false, value };
+        },
+      };
+    },
+  };
 }
 
-function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
-  const merged = new Uint8Array(left.length + right.length);
-  merged.set(left); merged.set(right, left.length);
+/** Copies buffered chunks into one contiguous PCM byte array. */
+function flattenBytes(parts: Uint8Array[], total: number): Uint8Array {
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) { merged.set(part, offset); offset += part.length; }
   return merged;
 }
 
