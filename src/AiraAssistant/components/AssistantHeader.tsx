@@ -38,7 +38,7 @@ export function AssistantHeader({
     closeChat();
     // Prefer history-back so users return to wherever they came from; fall
     // back to the machine dashboard if there is no in-app history.
-    if (window.history.length > 1) {
+    if (window.history.state?.idx > 0) {
       navigate(-1);
     } else {
       navigate('/machinescreen1');

@@ -1,0 +1,28 @@
+.aira-audio-pill {
+  background: #ffffff !important;
+  color: #263445 !important;
+  border: 1px solid #dce5ed !important;
+  border-radius: 50px !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05) !important;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.aira-audio-pill i {
+  color: #1689b5;
+  font-size: 14px;
+}
+
+.aira-audio-pill:hover {
+  background: #eef8fc !important;
+  border-color: #1689b5 !important;
+  color: #1689b5 !important;
+}
+
+.aira-audio-pill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

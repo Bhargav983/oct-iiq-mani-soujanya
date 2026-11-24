@@ -1,5 +1,5 @@
 import { MESSAGE_PLAYBACK_EVENT, messagePlaybackActive, stopMessagePlayback } from '../services/messagePlayback';
-import { ANDROID_AUDIO_EVENT, browserAudioReady, requestAndroidAudioState } from '../services/androidAudio';
+import { ANDROID_AUDIO_EVENT, androidAudioBackgrounded, browserAudioReady, requestAndroidAudioState } from '../services/androidAudio';
 import { useMicVAD } from '@ricky0123/vad-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceState } from '../types';
@@ -9,7 +9,7 @@ import { configureVoiceRuntime, voiceAssets } from '../services/voiceRuntime';
 import { audioCancelled, browserMicrophone, openBrowserMicrophone, type MicrophoneLease } from '../services/browserMicrophone';
 import { isVoiceSupported } from '../utils/voiceSupport';
 import { isPublicRoute } from '../utils/publicRoutes';
-import { playTTS, ttsService } from '../services/ttsService';
+import { PLAYBACK_INTERRUPTION_EVENT, playTTS, ttsService } from '../services/ttsService';
 import { getAuthContext, type AuthParams } from '../utils/useAuth';
 
 const SAMPLE_RATE = 16000;
@@ -72,6 +72,7 @@ export interface UseVoiceAssistantOptions {
    * VoiceAssistantContext navigates to /chat-bot and starts VAD itself).
    */
   onWakeWordDetected?: () => void;
+  onSessionEnded?: () => void;
   /**
    * Continuous-session gate for multi-turn voice conversations.
    * When it returns true at the end of a turn (reply spoken), the pipeline
@@ -110,6 +111,7 @@ export function useVoiceAssistant(
 ): UseVoiceAssistantResult {
   const optionsRef = useRef<UseVoiceAssistantOptions>({});
   optionsRef.current = options ?? {};
+  const previousPathRef = useRef(options?.currentPathname);
   /**
    * Late-bound mirror of the authenticated identity. The STT socket's
    * final-transcript callback (and the multi-turn resume loop) live in
@@ -169,6 +171,8 @@ export function useVoiceAssistant(
   const vadStartingRef = useRef<Promise<void> | null>(null);
   const vadPausingRef = useRef<Promise<void> | null>(null);
   const streamsRef = useRef(new Set<MediaStream>());
+  const captureStartRef = useRef<AbortController | null>(null);
+  const preparedStreamRef = useRef<MediaStream | null>(null);
   const releaseConversationRef = useRef<() => Promise<void>>(async () => {});
   /**
    * True while TTS audio is being synthesized or played back. While set,
@@ -179,11 +183,30 @@ export function useVoiceAssistant(
   const isTTSPlayingRef = useRef(false);
   onResultRef.current = onResult;
   
+  const silenceTimerRef = useRef<number | undefined>(undefined);
+  const startRef = useRef<() => Promise<void>>(async () => {});
+  const stopRef = useRef<() => void>(() => {});
+  const clearSilenceTimer = useCallback(() => {
+    window.clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = undefined;
+  }, []);
+  const armSilenceTimer = useCallback(() => {
+    clearSilenceTimer();
+    const generation = sessionGenerationRef.current;
+    silenceTimerRef.current = window.setTimeout(() => {
+      if (generation !== sessionGenerationRef.current || isUnmountedRef.current || stateRef.current !== 'LISTENING') return;
+      stopRef.current();
+      optionsRef.current.onSessionEnded?.();
+    }, 4000);
+  }, [clearSilenceTimer]);
+
   const updateState = useCallback((nextState: VoiceState) => {
     if (isUnmountedRef.current) return;
+    if (nextState !== 'LISTENING') clearSilenceTimer();
+    else if (stateRef.current !== 'LISTENING') armSilenceTimer();
     stateRef.current = nextState;
     setState(nextState);
-  }, []);
+  }, [armSilenceTimer, clearSilenceTimer]);
 
   const updateTranscript = useCallback((nextTranscript: string) => {
     if (isUnmountedRef.current) return;
@@ -229,6 +252,8 @@ export function useVoiceAssistant(
   }, []);
 
   const pauseVad = useCallback(async () => {
+    clearSilenceTimer();
+    captureStartRef.current?.abort();
     if (vadPausingRef.current) return vadPausingRef.current;
     const pending = (async () => {
       try { await vadStartingRef.current; } catch { /* failed startup still needs cleanup */ }
@@ -241,7 +266,7 @@ export function useVoiceAssistant(
     vadPausingRef.current = pending;
     try { await pending; }
     finally { if (vadPausingRef.current === pending) vadPausingRef.current = null; }
-  }, []);
+  }, [clearSilenceTimer]);
 
   const releaseConversation = useCallback(async () => {
     const lease = microphoneRef.current;
@@ -256,7 +281,11 @@ export function useVoiceAssistant(
 
   const startVad = useCallback(async () => {
     if (vadStartingRef.current) return vadStartingRef.current;
-    const valid = () => Boolean(microphoneRef.current?.isCurrent() && conversationRequestedRef.current && !isUnmountedRef.current);
+    const generation = sessionGenerationRef.current;
+    const capture = new AbortController();
+    captureStartRef.current = capture;
+    const valid = () => !capture.signal.aborted && generation === sessionGenerationRef.current
+      && Boolean(microphoneRef.current?.isCurrent()) && conversationRequestedRef.current && !isUnmountedRef.current;
     const pending = (async () => {
       await vadPausingRef.current;
       const deadline = Date.now() + 15000;
@@ -265,11 +294,45 @@ export function useVoiceAssistant(
       }
       if (!valid()) throw audioCancelled();
       if (!vadRef.current || vadRef.current.loading || vadRef.current.errored) throw new Error('Microphone preparation failed. Tap the mic to retry.');
-      await vadRef.current.start();
+
+      // Permission and capture can outlive the WebView foreground session. Open
+      // them before entering MicVAD, which cannot retry a canceled first start.
+      const canceled = new Promise<never>((_, reject) => {
+        capture.signal.addEventListener('abort', () => reject(audioCancelled()), { once: true });
+      });
+      const captureStarted = performance.now();
+      const stream = await Promise.race([
+        openBrowserMicrophone({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        }, valid),
+        canceled,
+      ]);
+      if (!valid()) {
+        stream.getTracks().forEach(track => track.stop());
+        throw audioCancelled();
+      }
+      console.info('[VoiceTiming] microphone-capture-ms', Math.round(performance.now() - captureStarted));
+      streamsRef.current.add(stream);
+      preparedStreamRef.current = stream;
+      try {
+        const vadStarted = performance.now();
+        await vadRef.current.start();
+        console.info('[VoiceTiming] vad-start-ms', Math.round(performance.now() - vadStarted));
+      }
+      finally {
+        if (preparedStreamRef.current === stream) {
+          preparedStreamRef.current = null;
+          streamsRef.current.delete(stream);
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }
     })();
     vadStartingRef.current = pending;
     try { await pending; }
-    finally { if (vadStartingRef.current === pending) vadStartingRef.current = null; }
+    finally {
+      if (captureStartRef.current === capture) captureStartRef.current = null;
+      if (vadStartingRef.current === pending) vadStartingRef.current = null;
+    }
   }, []);
 
   const acquireConversation = useCallback(async (generation: number) => {
@@ -309,6 +372,7 @@ export function useVoiceAssistant(
   }, []);
 
   const createSocket = useCallback(async (): Promise<void> => {
+    const generation = sessionGenerationRef.current;
     if (isUnmountedRef.current) return;
 
     const existing = socketRef.current;
@@ -329,6 +393,7 @@ export function useVoiceAssistant(
         await existing!.whenConnected(8000);
         return;
       } catch (error) {
+        if (generation !== sessionGenerationRef.current || isUnmountedRef.current) throw audioCancelled();
         console.warn('⚠️ [VoiceAssistant] Existing socket failed to open:', error);
         existing?.disconnect();
         socketRef.current = null;
@@ -358,6 +423,7 @@ export function useVoiceAssistant(
         // best-effort warm-up; socket connect has its own error handling
       }
     }
+    if (generation !== sessionGenerationRef.current || isUnmountedRef.current) throw audioCancelled();
 
     console.log('🔵 [VoiceAssistant] Creating Gemini speech transport', {
       url,
@@ -367,16 +433,22 @@ export function useVoiceAssistant(
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      const timeout = window.setTimeout(() => {
+        safeReject(new Error('Speech service connection timed out.'));
+        socket.disconnect();
+      }, 6000);
 
       const safeResolve = () => {
         if (settled) return;
         settled = true;
+        window.clearTimeout(timeout);
         resolve();
       };
 
       const safeReject = (error: Error) => {
         if (settled) return;
         settled = true;
+        window.clearTimeout(timeout);
         reject(error);
       };
 
@@ -412,7 +484,9 @@ export function useVoiceAssistant(
                 await pauseVad();
                 if (!current()) return;
                 console.log('📤 [STT] Sending final transcript to assistant:', finalText);
+                const requestedAt = performance.now();
                 const result = await onResultRef.current(finalText);
+                console.info('[VoiceTiming] assistant-response-ms', Math.round(performance.now() - requestedAt));
                 if (!current()) return;
 
                 updateTranscript('');
@@ -470,8 +544,16 @@ export function useVoiceAssistant(
         onError: (message) => {
           if (isUnmountedRef.current) return;
           console.error('🔴 [VoiceAssistant] VoiceSocket error:', message);
-          setErrorMessage(message);
-          updateState('ERROR');
+          if (settled && shouldListenRef.current) {
+            ++sessionGenerationRef.current;
+            shouldListenRef.current = false;
+            conversationRequestedRef.current = false;
+            streamingRef.current = false;
+            socket.disconnect();
+            void releaseConversationRef.current().catch(error => console.warn('Microphone release failed', error));
+            setErrorMessage(message);
+            updateState('ERROR');
+          }
           safeReject(new Error(message));
         },
         onStateChange: (socketState) => {
@@ -482,8 +564,8 @@ export function useVoiceAssistant(
           if (socketState === 'CONNECTED') {
             setErrorMessage(null);
             safeResolve();
-          } else if (socketState === 'ERROR') {
-            safeReject(new Error('Speech WebSocket entered ERROR state'));
+          } else if (socketState === 'ERROR' || socketState === 'DISCONNECTED') {
+            safeReject(new Error('Speech WebSocket disconnected'));
           }
         },
       });
@@ -523,30 +605,9 @@ export function useVoiceAssistant(
   }, []);
 
   const getMicStream = useCallback(async () => {
-    console.log('🎤 [VAD:MIC] Requesting microphone stream');
-
-    const generation = sessionGenerationRef.current;
-    const stream = await openBrowserMicrophone({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    }, () => generation === sessionGenerationRef.current && Boolean(microphoneRef.current?.isCurrent()) && conversationRequestedRef.current && !isUnmountedRef.current);
-    streamsRef.current.add(stream);
-
-    console.log('🎤 [VAD:MIC] Got microphone stream', {
-      id: stream.id,
-      active: stream.active,
-      tracks: stream.getAudioTracks().map(track => ({
-        label: track.label,
-        enabled: track.enabled,
-        readyState: track.readyState,
-        muted: track.muted,
-      })),
-    });
-
+    const stream = preparedStreamRef.current;
+    if (!stream) throw audioCancelled();
+    preparedStreamRef.current = null;
     return stream;
   }, []);
   
@@ -596,6 +657,7 @@ export function useVoiceAssistant(
       console.log('🔇 [VAD] Speech start ignored — TTS audio output active (use manual cancel to barge in)');
       return;
     }
+    clearSilenceTimer();
 
     // Stop any currently playing TTS when user starts speaking
     ttsService.stopCurrentAudio();
@@ -608,11 +670,12 @@ export function useVoiceAssistant(
     // opening words are buffered/queued rather than dropped.
     if (!socketRef.current || !socketRef.current.isConnected()) {
       console.log('🔄 [VAD] Socket closed before speech start — re-opening socket...');
+      const generation = sessionGenerationRef.current;
       void (async () => {
         try {
           await createSocket();
           const open = await ensureSocketOpen();
-          if (!open || isUnmountedRef.current) {
+          if (!open || generation !== sessionGenerationRef.current || !shouldListenRef.current || isUnmountedRef.current) {
             console.error('🔴 [VAD] Could not re-open socket for active utterance');
             return;
           }
@@ -722,7 +785,10 @@ export function useVoiceAssistant(
     onSpeechStart: useCallback(() => onSpeechStartRef.current(), []),
     onFrameProcessed: useCallback((p: any, f: Float32Array) => onFrameProcessedRef.current(p, f), []),
     onSpeechEnd: useCallback(() => onSpeechEndRef.current(), []),
-    onVADMisfire: useCallback(() => { streamingRef.current = false; }, []),
+    onVADMisfire: useCallback(() => {
+      streamingRef.current = false;
+      if (shouldListenRef.current && stateRef.current === 'LISTENING') armSilenceTimer();
+    }, [armSilenceTimer]),
   });
   // Keep vadRef in sync via effect so callback identities stay stable across
   // VAD state ticks (loading/listening changes re-render the hook).
@@ -765,7 +831,7 @@ export function useVoiceAssistant(
   }, []);
 
   const armWakeWord = useCallback(async () => {
-    if (isUnmountedRef.current || wakeFailureRef.current || messagePlaybackActive() || !browserAudioReady()) return;
+    if (isUnmountedRef.current || wakeFailureRef.current || ttsService.playbackInterruption() || messagePlaybackActive() || !browserAudioReady()) return;
     // iOS app WebView: running the wake-word ONNX runtime next to the VAD
     // exhausts WASM memory. Use tap-to-talk there instead.
     if (isIosNativeApp()) {
@@ -826,9 +892,11 @@ export function useVoiceAssistant(
         if (isUnmountedRef.current) return;
         if (shouldListenRef.current) return;
         conversationRequestedRef.current = true;
+        const sessionGeneration = sessionGenerationRef.current;
         void (async () => {
           // Stop wake-word detection first so the mic track is released cleanly
           await stopWakeWord();
+          if (sessionGeneration !== sessionGenerationRef.current || isUnmountedRef.current) return;
           playChime();
 
           // External owner (global VoiceAssistantContext) takes over from here:
@@ -839,37 +907,7 @@ export function useVoiceAssistant(
             return;
           }
 
-          shouldListenRef.current = true;
-          streamingRef.current = false;
-          setDone(false);
-          setErrorMessage(null);
-          updateTranscript('');
-          updateState('LISTENING');
-          // Reconnect the utterance transport if it was disconnected before
-          // VAD starts capturing the next turn.
-          if (!socketRef.current || !socketRef.current.isConnected()) {
-            console.log('🔄 [VoiceAssistant] Speech transport disconnected — reconnecting');
-            await createSocket();
-          } else {
-            console.log('♻️ [VoiceAssistant] Reusing speech transport');
-          }
-          if (isUnmountedRef.current) return;
-          // Allow the browser to release the wake-word mic track before
-          // MicVAD opens its own stream.
-          setTimeout(() => {
-            if (isUnmountedRef.current) return;
-            console.log('🟡 [VAD:START] Starting MicVAD after wake-word release...');
-            void (async () => {
-              const socketOpen = await ensureSocketOpen();
-              if (!socketOpen || isUnmountedRef.current) {
-                console.error('🔴 [VAD:START] Aborting wake-word start — no OPEN socket');
-                return;
-              }
-              console.log('🟢 [VAD:START] Socket OPEN — starting MicVAD pipeline');
-              await acquireConversation(sessionGenerationRef.current);
-              await startVad();
-            })();
-          }, 50);
+          await startRef.current();
         })();
       },
       onLevel: setAudioLevel,
@@ -921,7 +959,7 @@ export function useVoiceAssistant(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [armOnFirstGesture, createSocket, playChime, stopWakeWord, supported, updateState, updateTranscript]);
+  }, [armOnFirstGesture, playChime, stopWakeWord, supported]);
 
   // Keep the late-bound reference in sync after armWakeWord is defined.
   armWakeWordRef.current = armWakeWord;
@@ -931,18 +969,32 @@ export function useVoiceAssistant(
       if (!conversationRequestedRef.current && !document.hidden && !isUnmountedRef.current) void armWakeWordRef.current();
     });
     const background = (event: Event) => {
-      if (document.hidden || event.type === 'pagehide' || messagePlaybackActive() || !browserAudioReady()) {
+      const interrupted = document.hidden || event.type === 'pagehide' || androidAudioBackgrounded();
+      if (interrupted || messagePlaybackActive() || !browserAudioReady()) {
+        const permissionLost = !interrupted && !browserAudioReady() && conversationRequestedRef.current;
         ++sessionGenerationRef.current;
         conversationRequestedRef.current = false;
         shouldListenRef.current = false;
         streamingRef.current = false;
-        ttsService.stopCurrentAudio();
+        if (interrupted) {
+          ttsService.pauseForBackground();
+          streamsRef.current.forEach(stream => stream.getTracks().forEach(track => track.stop()));
+        }
         socketRef.current?.disconnect();
         void stopWakeWord();
         void releaseConversation().catch(error => console.warn('Microphone release failed', error));
-        updateState('IDLE');
+        if (permissionLost) {
+          setErrorMessage('Allow microphone access in Android settings and try again.');
+          updateState('ERROR');
+        } else {
+          updateState('IDLE');
+        }
       } else { wakeFailureRef.current = false; void armWakeWordRef.current(); }
     };
+    const playbackChanged = () => {
+      if (!ttsService.playbackInterruption()) queueMicrotask(() => { void armWakeWordRef.current(); });
+    };
+    window.addEventListener(PLAYBACK_INTERRUPTION_EVENT, playbackChanged);
     window.addEventListener(MESSAGE_PLAYBACK_EVENT, background);
     window.addEventListener(ANDROID_AUDIO_EVENT, background);
     requestAndroidAudioState();
@@ -950,6 +1002,7 @@ export function useVoiceAssistant(
     window.addEventListener('pagehide', background);
     return () => {
       unsubscribe();
+      window.removeEventListener(PLAYBACK_INTERRUPTION_EVENT, playbackChanged);
       window.removeEventListener(MESSAGE_PLAYBACK_EVENT, background);
       window.removeEventListener(ANDROID_AUDIO_EVENT, background);
       document.removeEventListener('visibilitychange', background);
@@ -1075,11 +1128,13 @@ export function useVoiceAssistant(
 
   const start = useCallback(async () => {
     if (isUnmountedRef.current) return;
-    if (!browserAudioReady()) {
+    if (document.hidden || !browserAudioReady()) {
+      updateState('ERROR');
       setErrorMessage('Allow microphone access in Android settings and return to the app to use voice.');
       return;
     }
     if (messagePlaybackActive()) stopMessagePlayback();
+    else if (ttsService.playbackInterruption()) ttsService.stopCurrentAudio();
     const activationStarted = performance.now();
     console.log('🎙️ [VoiceAssistant] START called');
 
@@ -1092,163 +1147,80 @@ export function useVoiceAssistant(
     conversationRequestedRef.current = true;
     shouldListenRef.current = false;
     streamingRef.current = false;
-    try { await acquireConversation(generation); }
-    catch (error) {
-      if (generation !== sessionGenerationRef.current || isUnmountedRef.current) return;
-      conversationRequestedRef.current = false;
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to acquire microphone.');
-      updateState('ERROR');
-      return;
-    }
-    const current = () => generation === sessionGenerationRef.current && Boolean(microphoneRef.current?.isCurrent()) && !isUnmountedRef.current;
-
-    console.log('🎙️ [VoiceAssistant] Starting voice session');
-
-    // NOTE: shouldListenRef/streamingRef are intentionally NOT armed yet.
-    // They flip to true only AFTER the socket has been verified OPEN and
-    // held stable (see the stability hold below), so no frames stream
-    // during the handshake/stabilization window.
-
     setDone(false);
     setErrorMessage(null);
     updateTranscript('');
     updateState('IDLE');
 
-    console.log('🎙️ [VoiceAssistant] Creating STT socket');
+    const timer = window.setTimeout(() => {
+      if (generation !== sessionGenerationRef.current || isUnmountedRef.current) return;
+      ++sessionGenerationRef.current;
+      conversationRequestedRef.current = false;
+      shouldListenRef.current = false;
+      streamingRef.current = false;
+      socketRef.current?.disconnect();
+      streamsRef.current.forEach(stream => stream.getTracks().forEach(track => track.stop()));
+      void releaseConversation().catch(error => console.warn('Microphone release failed', error));
+      setErrorMessage('Microphone preparation timed out. Tap the mic to retry.');
+      updateState('ERROR');
+    }, 15000);
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-
-      console.log('🎤 [MIC] Available devices:', devices.map(device => ({
-        kind: device.kind,
-        label: device.label,
-        deviceId: device.deviceId ? 'present' : 'missing',
-      })));
-    } catch (error) {
-      console.error('🔴 [MIC] Could not enumerate devices:', error);
-    }
-    if (!current()) return;
-
-    // STRICT HANDSHAKE SEQUENCING — manual voice mode:
-    //   1. Create/verify the STT socket.
-    //   2. Await WebSocket OPEN (readyState === 1) — no exceptions.
-    //   3. ONLY THEN call vad.start() so captured frames stream immediately
-    //      instead of being clipped while the handshake is in flight.
-    // Open a fresh STT session and verify it. VoiceSocket intentionally does
-    // not perform hidden background reconnects because that can race this
-    // start() call and swap the underlying WebSocket while we are stabilizing.
-    let socketOpen = false;
-    let lastSocketError: unknown = null;
-
-    for (let attempt = 1; attempt <= 2 && !socketOpen; attempt += 1) {
-      if (!current()) return;
-      try {
-        if (!socketRef.current || !socketRef.current.isConnected()) {
-          console.log(`🔄 [VoiceAssistant] Opening STT socket (attempt ${attempt}/2)`);
-          await createSocket();
-        }
-
-        socketOpen = await ensureSocketOpen();
-
-        if (!socketOpen) {
-          lastSocketError = new Error('WebSocket did not reach OPEN');
-        }
-      } catch (error) {
-        lastSocketError = error;
-        console.error(`🔴 [VoiceAssistant] STT socket attempt ${attempt} failed:`, error);
-      }
-
-      if (!socketOpen && attempt < 2) {
-        console.warn('⚠️ [VoiceAssistant] Retrying STT WebSocket with a fresh instance');
-        try {
+      await acquireConversation(generation);
+      console.info('[VoiceTiming] microphone-handoff-ms', Math.round(performance.now() - activationStarted));
+      const current = () => generation === sessionGenerationRef.current && Boolean(microphoneRef.current?.isCurrent()) && !isUnmountedRef.current;
+      preRollBufferRef.current = [];
+      const connectSpeech = async () => {
+        const started = performance.now();
+        for (let attempt = 0; attempt < 2 && current(); attempt += 1) {
+          try {
+            await createSocket();
+            if (!current()) return;
+            if (socketRef.current?.isConnected()) {
+              console.info('[VoiceTiming] speech-connection-ms', Math.round(performance.now() - started));
+              return;
+            }
+          } catch (error) {
+            if (!current()) return;
+            console.warn('Speech service connection attempt failed', error);
+          }
           socketRef.current?.disconnect();
-        } catch {
-          // ignore
+          socketRef.current = null;
         }
-        socketRef.current = null;
-        await new Promise<void>((resolve) => setTimeout(resolve, 250));
-      }
-    }
+        if (current()) throw new Error('Could not connect to the speech service. Please try again.');
+      };
 
-    if (!current()) return;
-    if (!socketOpen) {
-      console.error('🔴 [VoiceAssistant] Aborting start — STT WebSocket is not OPEN', lastSocketError);
-      setErrorMessage('Could not connect to the speech service. Please try again.');
-      updateState('ERROR');
-      shouldListenRef.current = false;
-      conversationRequestedRef.current = false;
-      await releaseConversation();
-      return;
-    }
-
-    // Short stability check. This now detects a real server/proxy drop; it
-    // no longer competes with VoiceSocket's automatic reconnect mechanism.
-    console.log('⏱️ [VoiceAssistant] Holding for socket stabilization (250ms)...');
-    const stabilizeStart = Date.now();
-
-    while (Date.now() - stabilizeStart < 250) {
+      // Warm up capture and transport together. VAD callbacks cannot send
+      // audio until both are ready and the listening UI is shown.
+      await Promise.all([startVad(), connectSpeech()]);
       if (!current()) return;
-      if (!socketRef.current?.isConnected()) {
-        console.error('🔴 [VoiceAssistant] STT server/proxy closed the socket during stabilization');
-        setErrorMessage('Speech service connection was interrupted. Please try again.');
-        updateState('ERROR');
-        shouldListenRef.current = false;
-        conversationRequestedRef.current = false;
-        await releaseConversation();
-        return;
-      }
-
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    }
-
-    // Pre-roll: brief pause after VAD's mic stream opens so its audio worklet
-    // and resampler are warmed up before frames are allowed to stream.
-    shouldListenRef.current = true;
-    streamingRef.current = false;
-
-    console.log('🎙️ [VoiceAssistant] Socket stable — starting VAD');
-    const vadDeadline = Date.now() + 15000;
-    while (vadRef.current?.loading && current() && Date.now() < vadDeadline) {
-      await new Promise<void>(resolve => setTimeout(resolve, 50));
-    }
-    if (!current()) return;
-    if (vadRef.current?.loading || vadRef.current?.errored) {
-      shouldListenRef.current = false;
-      conversationRequestedRef.current = false;
-      await releaseConversation();
-      setErrorMessage('Microphone preparation failed. Tap the mic to retry.');
-      updateState('ERROR');
-      return;
-    }
-    try {
-      console.log('🟡 [VAD:START] Calling vad.start()');
-      await startVad();
-      if (!current()) return;
+      if (!socketRef.current?.isConnected()) throw new Error('Speech service disconnected. Please try again.');
+      shouldListenRef.current = true;
       updateState('LISTENING');
       console.info('[VoiceTiming] activation-ready-ms', Math.round(performance.now() - activationStarted));
-      console.log('🟢 [VoiceAssistant] Session armed — streaming enabled', {
-        listening: vad.listening,
-        errored: vad.errored,
-      });
     } catch (error) {
-      if (!current()) return;
-      console.error('🔴 [VAD:START] vad.start() threw an error:', error);
-      shouldListenRef.current = false;
+      if (generation !== sessionGenerationRef.current || isUnmountedRef.current) return;
+      ++sessionGenerationRef.current;
       conversationRequestedRef.current = false;
-      await releaseConversation();
+      shouldListenRef.current = false;
+      streamingRef.current = false;
+      socketRef.current?.disconnect();
+      void releaseConversation().catch(reason => console.warn('Microphone release failed', reason));
       setErrorMessage(error instanceof Error ? error.message : 'Unable to start microphone.');
       updateState('ERROR');
+    } finally {
+      window.clearTimeout(timer);
     }
   }, [
     acquireConversation,
     createSocket,
-    ensureSocketOpen,
     releaseConversation,
     startVad,
     supported,
     updateState,
     updateTranscript,
-    vad,
   ]);
+
+  startRef.current = start;
 
   const stop = useCallback(() => {
     if (isUnmountedRef.current) return;
@@ -1272,6 +1244,7 @@ export function useVoiceAssistant(
     ttsService.stopCurrentAudio();
     void releaseConversation().then(() => { if (generation === sessionGenerationRef.current) void armWakeWord(); }).catch(error => setErrorMessage(String(error)));
   }, [armWakeWord, pauseVad, releaseConversation, updateState, vad]);
+  stopRef.current = stop;
 
   const cancel = useCallback(() => {
     if (isUnmountedRef.current) return;
@@ -1370,7 +1343,13 @@ export function useVoiceAssistant(
    */
   useEffect(() => {
     const currentPath = optionsRef.current.currentPathname;
+    const previousPath = previousPathRef.current;
+    previousPathRef.current = currentPath;
     if (currentPath === undefined) return;
+    if (previousPath === '/chat-bot' && currentPath !== previousPath && conversationRequestedRef.current) {
+      stopRef.current();
+      optionsRef.current.onSessionEnded?.();
+    }
     if (isPublicRoute(currentPath)) {
       console.log('🚫 [WakeWord] Route changed to public — tearing down listener:', currentPath);
       ++sessionGenerationRef.current;

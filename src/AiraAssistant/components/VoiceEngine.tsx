@@ -49,6 +49,7 @@ export interface VoiceEngineProps {
    * starting MicVAD in-place (used by the global VoiceAssistantContext).
    */
   onWakeWordDetected?: () => void;
+  onSessionEnded?: () => void;
 
   /**
    * Continuous-session gate — polled at the end of each voice turn.
@@ -101,6 +102,7 @@ const BrowserVoiceEngine = forwardRef<
     onResult,
     onSnapshot,
     onWakeWordDetected,
+    onSessionEnded,
     isSessionActive,
     currentPathname,
     auth,
@@ -109,6 +111,7 @@ const BrowserVoiceEngine = forwardRef<
 ) {
   const voice = useVoiceAssistant(onResult, lang, {
     onWakeWordDetected,
+    onSessionEnded,
     isSessionActive,
     currentPathname,
     auth,

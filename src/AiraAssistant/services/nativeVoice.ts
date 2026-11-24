@@ -51,7 +51,7 @@ export function startNativeVoice(mode: NativeVoiceMode, lang: string, handler: (
   let timer: ReturnType<typeof setTimeout>;
   const unsubscribe = listenNativeVoice(event => {
     if (event.requestId !== requestId || disposed) return;
-    clearTimeout(timer);
+    if (event.event === 'start') clearTimeout(timer);
     if (event.event === 'end') cleanup();
     handler(event);
   });

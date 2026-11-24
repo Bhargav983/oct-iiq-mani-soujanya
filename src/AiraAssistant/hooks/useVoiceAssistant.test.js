@@ -7,16 +7,21 @@ import { browserMicrophone } from '../services/browserMicrophone';
 import { playTTS } from '../services/ttsService';
 import { useInlineDictation } from './useInlineDictation';
 const mockSockets = [];
+let mockVadOptions;
 jest.mock('../services/geminiVoiceSocket', () => ({ GeminiVoiceSocket: jest.fn() }));
 jest.mock('../services/wakeWordService', () => ({ WakeWordService: jest.fn() }));
 jest.mock('@ricky0123/vad-react', () => {
   const vad = { loading: false, listening: false, errored: null, start: jest.fn(), pause: jest.fn(), destroy: jest.fn() };
-  return { useMicVAD: () => vad };
+  return { useMicVAD: options => {
+    if (options.onSpeechStart) mockVadOptions = options;
+    return vad;
+  } };
 });
 jest.mock('../utils/voiceSupport', () => ({ isVoiceSupported: () => true }));
 jest.mock('../utils/useAuth', () => ({ getAuthContext: () => ({ userId: 'u', companyId: 'c' }) }));
-jest.mock('../services/ttsService', () => ({ ttsService: { stopCurrentAudio: jest.fn() }, playTTS: jest.fn() }));
+jest.mock('../services/ttsService', () => ({ ...jest.requireActual('../services/ttsService'), playTTS: jest.fn(), ttsService: { stopCurrentAudio: jest.fn(), pauseForBackground: jest.fn(), playbackInterruption: jest.fn() } }));
 
+const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
 beforeEach(() => {
   jest.clearAllMocks(); mockSockets.length = 0;
   useMicVAD({}).loading = false;
@@ -27,6 +32,14 @@ beforeEach(() => {
   });
   useMicVAD({}).start.mockResolvedValue(undefined);
   useMicVAD({}).pause.mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia: jest.fn(async () => ({ getTracks: () => [] })) },
+  });
+});
+afterEach(() => {
+  if (mediaDevicesDescriptor) Object.defineProperty(navigator, 'mediaDevices', mediaDevicesDescriptor);
+  else delete navigator.mediaDevices;
 });
 const mount = () => renderHook(() => useVoiceAssistant(jest.fn(), 'en', { currentPathname: '/dashboard' }));
 
@@ -64,6 +77,28 @@ test('manual conversation waits for wake capture to stop', async () => {
   await act(async () => { released(); await pending; });
   expect(useMicVAD({}).start).toHaveBeenCalled();
   expect(browserMicrophone.mode).toBe('conversation');
+});
+
+test('voice can retry after locking during a pending microphone request', async () => {
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop: async () => {}, isActive: true }));
+  let resolveOldCapture;
+  navigator.mediaDevices.getUserMedia.mockImplementationOnce(() => new Promise(resolve => { resolveOldCapture = resolve; }));
+  const { result } = mount();
+  await act(async () => {});
+  let interrupted;
+  await act(async () => { interrupted = result.current.start(); });
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  expect(useMicVAD({}).start).not.toHaveBeenCalled();
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+    await interrupted;
+  });
+  expect(result.current.state).toBe('IDLE');
+  await act(async () => { await result.current.start(); });
+  expect(result.current.state).toBe('LISTENING');
+  const stop = jest.fn();
+  await act(async () => { resolveOldCapture({ getTracks: () => [{ stop }] }); });
+  expect(stop).toHaveBeenCalledTimes(1);
 });
 
 test('wake re-arm waits for VAD pause to complete', async () => {
@@ -191,4 +226,41 @@ test('first activation waits for VAD readiness before claiming to listen', async
     expect(useMicVAD({}).start).toHaveBeenCalledTimes(1);
     expect(hook.result.current.listening).toBe(true);
   } finally { hook.unmount(); jest.useRealTimers(); }
+});
+
+test('capture warms up before the speech socket opens', async () => {
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop: async () => {}, isActive: true }));
+  let openSocket;
+  GeminiVoiceSocket.mockImplementationOnce(config => {
+    let connected = false;
+    openSocket = () => { connected = true; config.onStateChange('CONNECTED'); };
+    return { connect: jest.fn(), isConnected: () => connected, disconnect: jest.fn(), sendAudioChunk: jest.fn() };
+  });
+  const hook = mount();
+  let pending;
+  await act(async () => { pending = hook.result.current.start(); });
+  expect(useMicVAD({}).start).toHaveBeenCalledTimes(1);
+  expect(hook.result.current.listening).toBe(false);
+  await act(async () => { openSocket(); await pending; });
+  expect(hook.result.current.listening).toBe(true);
+});
+
+test.each([false, true])('silence exits after four seconds unless speech starts (speech: %s)', async speech => {
+  jest.useFakeTimers();
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop: async () => {}, isActive: true }));
+  const onSessionEnded = jest.fn();
+  const hook = renderHook(() => useVoiceAssistant(jest.fn(), 'en', { currentPathname: '/chat-bot', onSessionEnded }));
+  try {
+    await act(async () => { await hook.result.current.start(); });
+    await act(async () => { jest.advanceTimersByTime(3900); });
+    expect(hook.result.current.listening).toBe(true);
+    if (speech) act(() => { mockVadOptions.onSpeechStart(); });
+    await act(async () => { jest.advanceTimersByTime(100); });
+    expect(hook.result.current.listening).toBe(speech);
+    expect(onSessionEnded).toHaveBeenCalledTimes(speech ? 0 : 1);
+    if (!speech) expect(browserMicrophone.mode).not.toBe('conversation');
+  } finally {
+    hook.unmount();
+    jest.useRealTimers();
+  }
 });

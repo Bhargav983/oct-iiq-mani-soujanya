@@ -3,6 +3,10 @@ import { detectVoiceRuntime } from './voiceEnvironment';
 export const ANDROID_AUDIO_EVENT = 'aira-android-audio';
 type AudioState = { version: 1; permission: 'pending' | 'granted' | 'denied'; foreground: boolean };
 
+export function androidAudioBackgrounded(): boolean {
+  return (window as Window & { __AIRA_ANDROID_AUDIO__?: AudioState }).__AIRA_ANDROID_AUDIO__?.foreground === false;
+}
+
 /** Older wrappers and ordinary browsers retain their existing capture path. */
 export function browserAudioReady(): boolean {
   if (detectVoiceRuntime() !== 'android-webview') return true;

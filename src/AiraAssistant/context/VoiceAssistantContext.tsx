@@ -13,6 +13,8 @@ import { VoiceEngine, type VoiceEngineHandle, type VoiceSnapshot } from '../comp
 import { callAssistant, mapResponse } from '../services/api';
 import type { Language } from '../types';
 import { getAuthContext, useAuth, type AuthParams } from '../utils/useAuth';
+import { ANDROID_AUDIO_EVENT, androidAudioBackgrounded } from '../services/androidAudio';
+import { listenNativeVoice } from '../services/nativeVoice';
 
 type NavigateFn = (path: string) => void;
 type VoiceResultHandler = (text: string) => Promise<string | void> | string | void;
@@ -205,10 +207,33 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
     }
   }, [userId, companyId, voiceLanguage]);
 
+  const resetVoiceUi = useCallback(() => {
+    isVoiceActiveRef.current = false;
+    setIsVoiceActive(false);
+  }, []);
+
   const handleSnapshot = useCallback((snapshot: VoiceSnapshot) => {
     setWakeWordArmed(snapshot.wakeWordEnabled);
+    if (snapshot.state === 'ERROR') resetVoiceUi();
     snapshotHandlerRef.current?.(snapshot);
-  }, []);
+  }, [resetVoiceUi]);
+
+  useEffect(() => {
+    const onVisibility = () => { if (document.hidden) resetVoiceUi(); };
+    const onAndroidAudio = () => { if (androidAudioBackgrounded()) resetVoiceUi(); };
+    const unsubscribe = listenNativeVoice(event => {
+      if (event.event === 'appState' && event.active === false) resetVoiceUi();
+    });
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', resetVoiceUi);
+    window.addEventListener(ANDROID_AUDIO_EVENT, onAndroidAudio);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', resetVoiceUi);
+      window.removeEventListener(ANDROID_AUDIO_EVENT, onAndroidAudio);
+    };
+  }, [resetVoiceUi]);
 
   /**
    * Wake-word entry point. By the time this runs, useVoiceAssistant has already
@@ -225,7 +250,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
     setIsVoiceActive(true);
     navigateRef.current?.('/chat-bot');
     window.setTimeout(() => {
-      void voiceRef.current?.start();
+      if (isVoiceActiveRef.current && !document.hidden) void voiceRef.current?.start();
     }, 50);
   }, []);
 
@@ -331,6 +356,7 @@ export function VoiceAssistantProvider({ children, lang = 'en' }: VoiceAssistant
         lang={voiceLanguage}
         onResult={handleVoiceResult}
         onSnapshot={handleSnapshot}
+        onSessionEnded={resetVoiceUi}
         onWakeWordDetected={openChatFromWakeWord}
         isSessionActive={() => isVoiceActiveRef.current}
         currentPathname={currentPathname ?? undefined}

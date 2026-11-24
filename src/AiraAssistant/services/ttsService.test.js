@@ -30,6 +30,23 @@ test('stopping response playback settles the turn promise and releases the URL',
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:voice');
 });
 
+test('interrupted blob playback resumes with the same audio and position', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
+  const playback = playTTS('resume this reply');
+  await flush();
+  audio.currentTime = 2.5;
+  ttsService.pauseForBackground();
+  expect(ttsService.playbackInterruption()).toBe('paused');
+  expect(audio.pause).toHaveBeenCalledTimes(1);
+  await ttsService.resumeInterrupted();
+  expect(audio.play).toHaveBeenCalledTimes(2);
+  expect(audio.currentTime).toBe(2.5);
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  audio.onended();
+  await playback;
+  expect(ttsService.playbackInterruption()).toBeNull();
+});
+
 test('synthesis that resolves after cancellation cannot start stale audio', async () => {
   let respond;
   global.fetch = jest.fn(() => new Promise(resolve => { respond = resolve; }));
@@ -84,6 +101,7 @@ beforeEach(() => {
     const context = {
       currentTime: 0, state: 'running', destination: {},
       resume: jest.fn().mockResolvedValue(undefined),
+      suspend: jest.fn().mockResolvedValue(undefined),
       close: jest.fn().mockResolvedValue(undefined),
       createBuffer: jest.fn((channels, length, rate) => {
         const data = new Float32Array(length);
@@ -133,6 +151,24 @@ test('stopping streamed playback closes the audio context and settles the turn',
   await pending;
   expect(audioContexts[0].context.close).toHaveBeenCalled();
   expect(ttsService.isPlaying()).toBe(false);
+});
+
+test('interrupted streamed playback resumes the existing audio timeline', async () => {
+  const samples = Array.from({ length: 24000 }, () => 1000);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([wav(samples)]));
+  const playback = playTTS('resume the stream');
+  await settle();
+  const [{ context, scheduled }] = audioContexts;
+  ttsService.pauseForBackground();
+  ttsService.pauseForBackground();
+  expect(context.suspend).toHaveBeenCalledTimes(1);
+  expect(context.close).not.toHaveBeenCalled();
+  await ttsService.resumeInterrupted();
+  expect(context.resume).toHaveBeenCalledTimes(1);
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  scheduled.at(-1).onended();
+  await playback;
+  expect(ttsService.playbackInterruption()).toBeNull();
 });
 
 test('a streamed response with no audio data settles without scheduling playback', async () => {

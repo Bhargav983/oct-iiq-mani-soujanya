@@ -5,7 +5,7 @@ import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
 import { playTTS } from '../services/ttsService';
 import { useInlineDictation } from '../hooks/useInlineDictation';
 jest.mock('../hooks/useVoiceAssistant', () => ({ useVoiceAssistant: jest.fn() }));
-jest.mock('../services/ttsService', () => ({ playTTS: jest.fn(), ttsService: { stopCurrentAudio: jest.fn() } }));
+jest.mock('../services/ttsService', () => ({ ...jest.requireActual('../services/ttsService'), playTTS: jest.fn(), ttsService: { stopCurrentAudio: jest.fn(), pauseForBackground: jest.fn(), playbackInterruption: jest.fn() } }));
 let post;
 function commands() {
     return post.mock.calls.map(([message]) => JSON.parse(message)).filter(message => message.type === 'AIRA_VOICE');

@@ -15,8 +15,8 @@ interface TTSResponse {
  * change server-side cannot desync playback.
  */
 const FALLBACK_SAMPLE_RATE = 24000;
-/** Start playback once this much PCM is buffered (~0.4s at 24 kHz). */
-const PREFETCH_BYTES = 19200;
+/** Start playback once this much PCM is buffered (~0.2s at 24 kHz). */
+const PREFETCH_BYTES = 9600;
 /** Decode at most this many bytes per block so a large reply cannot jank the UI. */
 const CHUNK_BYTES = 65536;
 /** Stop buffering ahead of the playhead beyond this (~8s at 24 kHz). */
@@ -27,6 +27,7 @@ const MAX_BUFFER_BYTES = 384000;
 // ---------------------------------------------------------------------------
 
 const GEMINI_TTS_URL = process.env.REACT_APP_GEMINI_TTS_URL || '/api/aira-voice/tts';
+export const PLAYBACK_INTERRUPTION_EVENT = 'airaPlaybackInterruption';
 
 // ---------------------------------------------------------------------------
 // Arabic script detection
@@ -44,6 +45,42 @@ export function isArabicText(text: string): boolean {
 }
 
 class TTSService {
+  private interruption: 'paused' | 'resuming' | 'resumed' | null = null;
+  public playbackInterruption = () => this.interruption;
+  private setInterruption(state: typeof this.interruption) {
+    if (this.interruption === state) return;
+    this.interruption = state;
+    window.dispatchEvent(new Event(PLAYBACK_INTERRUPTION_EVENT));
+  }
+
+  public pauseForBackground(): void {
+    if (this.interruption === 'paused') return;
+    if (this.stream?.started) {
+      this.setInterruption('paused');
+      void this.stream.context.suspend().catch(() => undefined);
+    } else if (this.currentAudio && this.currentAudio.currentTime > 0 && !this.currentAudio.ended) {
+      this.setInterruption('paused');
+      this.currentAudio.pause();
+    } else {
+      this.stopCurrentAudio();
+    }
+  }
+
+  public async resumeInterrupted(): Promise<void> {
+    if (this.interruption !== 'paused' || document.hidden) return;
+    const generation = this.generation;
+    this.setInterruption('resuming');
+    try {
+      if (this.stream) await this.stream.context.resume();
+      else await this.currentAudio?.play();
+      if (generation === this.generation && this.playbackInterruption() === 'resuming') {
+        this.setInterruption('resumed');
+      }
+    } catch (error) {
+      if (generation === this.generation) this.setInterruption('paused');
+      throw error;
+    }
+  }
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
   private finishPlayback: (() => void) | null = null;
@@ -119,6 +156,7 @@ class TTSService {
           company_id: auth?.companyId ?? '',
         }),
       });
+      if (generation !== this.generation) return;
 
       if (!response.ok) {
         throw new Error(`Gemini TTS request failed: ${response.status} ${response.statusText}`);
@@ -184,7 +222,11 @@ class TTSService {
         if (settled) return;
         settled = true;
         voiceWindow.__airaVoiceAudioContexts__?.delete(context);
-        if (this.stream === session) this.stream = null;
+        if (this.stream === session) {
+          this.stream = null;
+          this.finishPlayback = null;
+          this.setInterruption(null);
+        }
         if (error) reject(error);
         else resolve();
       };
@@ -221,6 +263,7 @@ class TTSService {
         source.start(startAt);
         scheduledUntil = startAt + samples.length / rate;
         scheduledSamples += samples.length;
+        playbackEnded = false;
         lastSource = source;
         source.onended = () => {
           if (source !== lastSource || session.stopped) return;
@@ -228,7 +271,6 @@ class TTSService {
           // (stalled mid-reply), wait for the drain to settle the turn so the
           // caller does not move on and cut the remaining audio off.
           console.log('🔊 [TTS] Streaming playback completed');
-          this.finishPlayback = null;
           playbackEnded = true;
           if (bodyDone) {
             void context.close().catch(() => undefined);
@@ -300,7 +342,11 @@ class TTSService {
           if (cacheKey && received.length) this.remember(cacheKey, new Blob(received, { type: 'audio/wav' }));
           if (!session.started) {
             // Short reply: the whole body arrived before the prefetch threshold.
-            if (!scheduledSamples) { settle(); return; }
+            if (!scheduledSamples) {
+              void context.close().catch(() => undefined);
+              settle();
+              return;
+            }
             session.started = true;
             if (startedAt !== undefined) {
               console.info('[VoiceTiming] synthesis-ready-ms', Math.round(performance.now() - startedAt));
@@ -422,6 +468,7 @@ class TTSService {
    * Clean up audio resources
    */
   private cleanupAudio(): void {
+    this.setInterruption(null);
     this.finishPlayback = null;
     if (this.currentAudio) {
       this.currentAudio.onended = null;

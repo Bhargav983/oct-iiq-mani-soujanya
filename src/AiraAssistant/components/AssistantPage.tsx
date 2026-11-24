@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Modal } from 'react-bootstrap';
 import type { Action, ChatMessage, Language, QuickActionKey, SuggestedAction } from '../types';
 import { t } from '../i18n/strings';
+import './AssistantPage.css';
 import { AssistantHeader } from './AssistantHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
@@ -16,6 +17,8 @@ import { getMachines } from '../services/machineService';
 import type { ChatContext } from '../types';
 import { createMessageId } from '../utils/messageId';
 import { isVoiceSupported } from '../utils/voiceSupport';
+import { PLAYBACK_INTERRUPTION_EVENT, ttsService } from '../services/ttsService';
+import { stopMessagePlayback } from '../services/messagePlayback';
 
 function welcomeMessage(lang: Language): ChatMessage {
   return { id: createMessageId('m'), role: 'assistant', kind: 'text', text: t(lang).welcome, timestamp: Date.now() };
@@ -96,6 +99,14 @@ export function AssistantPage() {
   } = useVoiceAssistantContext();
   const auth = useMemo(() => ({ userId, companyId }), [userId, companyId]);
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(IDLE_VOICE_SNAPSHOT);
+  const [interruption, setInterruption] = useState(ttsService.playbackInterruption);
+  const [resumeError, setResumeError] = useState(false);
+  useEffect(() => {
+    const update = () => setInterruption(ttsService.playbackInterruption());
+    window.addEventListener(PLAYBACK_INTERRUPTION_EVENT, update);
+    update();
+    return () => window.removeEventListener(PLAYBACK_INTERRUPTION_EVENT, update);
+  }, []);
   useEffect(() => { setVoiceLanguage(lang); setCtx(previous => ({ ...previous, lang })); }, [lang, setVoiceLanguage]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,6 +332,7 @@ export function AssistantPage() {
   }
 
   function newChat() {
+    stopMessagePlayback();
     setMessages([welcomeMessage(lang), quickActionsMessage(lang)]);
     setCtx({ ...makeInitialContext(), lang });
     setHiddenSuggestionsForMessageId(null);
@@ -333,7 +345,57 @@ export function AssistantPage() {
       {/* <VADTest /> */}
       <AssistantHeader lang={lang} onLangChange={setLang} onNewChat={() => setShowNewChatConfirm(true)} />
       {voiceSnapshot.errorMessage && <div role="alert" className="px-3 py-2 small text-danger">{voiceSnapshot.errorMessage}</div>}
+   {interruption && (
+  <div className="d-flex flex-wrap gap-2 align-items-center px-3 py-2">
 
+    {interruption !== 'resumed' && (
+      <Button
+        size="sm"
+        disabled={interruption === 'resuming'}
+        onClick={() => {
+          setResumeError(false);
+          void ttsService.resumeInterrupted().catch(() => setResumeError(true));
+        }}
+        className="aira-audio-pill"
+      >
+        <i className="bi bi-play-circle me-1"></i>
+        {interruption === 'resuming'
+          ? 'Resuming...'
+          : lang === 'ar'
+          ? 'استئناف الصوت'
+          : lang === 'hi'
+          ? 'ऑडियो जारी रखें'
+          : 'Resume audio'}
+      </Button>
+    )}
+
+    <Button
+      size="sm"
+      onClick={() => {
+        setResumeError(false);
+        stopMessagePlayback();
+      }}
+      className="aira-audio-pill"
+    >
+      <i className="bi bi-stop-circle me-1"></i>
+      {lang === 'ar'
+        ? 'إيقاف الصوت'
+        : lang === 'hi'
+        ? 'ऑडियो रोकें'
+        : 'Stop audio'}
+    </Button>
+
+    {resumeError && (
+      <span role="alert" className="small text-danger">
+        {lang === 'ar'
+          ? 'تعذر استئناف الصوت.'
+          : lang === 'hi'
+          ? 'ऑडियो जारी नहीं हो सका।'
+          : 'Audio could not resume.'}
+      </span>
+    )}
+  </div>
+)}
       <div ref={scrollRef} className="aira-chat-scroll aira-glass">
         <div className="mx-auto d-flex flex-column gap-3" style={{ maxWidth: '42rem' }}>
           {messages.filter((message): message is ChatMessage => Boolean(message)).map((m) => (

@@ -2,7 +2,7 @@ import { MESSAGE_PLAYBACK_EVENT, messagePlaybackActive, stopMessagePlayback } fr
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { VoiceEngineHandle, VoiceEngineProps, VoiceSnapshot } from './VoiceEngine';
 import { hasNativeVoice, listenNativeVoice, nativeVoiceDebug, requestNativeReady, startNativeVoice, voiceLocale } from '../services/nativeVoice';
-import { playTTS, ttsService } from '../services/ttsService';
+import { PLAYBACK_INTERRUPTION_EVENT, playTTS, ttsService } from '../services/ttsService';
 import { isPublicRoute } from '../utils/publicRoutes';
 
 const idle: VoiceSnapshot = { supported: false, state: 'IDLE', listening: false, processing: false, transcript: '', done: false, errorMessage: null, wakeWordEnabled: false, audioLevel: 0 };
@@ -30,20 +30,20 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
   const update = useCallback((patch: Partial<VoiceSnapshot>) => {
     if (mounted.current) setSnapshot(previous => ({ ...previous, ...patch }));
   }, []);
-  const cancel = useCallback(() => {
+  const cancel = useCallback((preservePlayback = false) => {
     ++generation.current;
     if (retry.current) clearTimeout(retry.current);
     retry.current = null;
     session.current?.cancel();
     session.current = null;
     busy.current = false;
-    ttsService.stopCurrentAudio();
+    if (!preservePlayback) ttsService.stopCurrentAudio();
     text.current = '';
     update({ ...idle, supported: hasNativeVoice() });
   }, [update]);
 
   const arm = useCallback(() => {
-    if (wakeBlocked.current || !eligible() || dictating.current || busy.current || session.current || !hasNativeVoice()) return;
+    if (wakeBlocked.current || !eligible() || dictating.current || busy.current || session.current || ttsService.playbackInterruption() || !hasNativeVoice()) return;
     let detected = false;
     let failed = false;
     const token = generation.current;
@@ -81,7 +81,9 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
     busy.current = true;
     update({ state: 'PROCESSING', processing: true, listening: false, transcript: value, done: true, audioLevel: 0 });
     try {
+      const requestedAt = performance.now();
       const reply = await latest.current.onResult(value.trim());
+      console.info('[VoiceTiming] assistant-response-ms', Math.round(performance.now() - requestedAt));
       if (!current()) return;
       if (typeof reply === 'string' && reply.trim()) {
         update({ state: 'SYNTHESIZING' });
@@ -103,19 +105,26 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
     cancel();
     wakeBlocked.current = false;
     dictating.current = false;
-    if (!eligible()) return;
+    if (!eligible()) {
+      update({ state: 'ERROR', errorMessage: 'Return to AIRA before starting the microphone.' });
+      return;
+    }
     if (!hasNativeVoice()) {
       update({ state: 'ERROR', errorMessage: 'Install the updated iOS app to use native voice.' });
       return;
     }
     const token = generation.current;
+    const activationStarted = performance.now();
     busy.current = true;
     let failed = false;
     let final = '';
     update({ supported: true, transcript: '', done: false, errorMessage: null });
     session.current = startNativeVoice('conversation', voiceLocale(latest.current.lang), event => {
       if (token !== generation.current || !mounted.current) return;
-      if (event.event === 'start') update({ state: 'LISTENING', listening: true });
+      if (event.event === 'start') {
+        update({ state: 'LISTENING', listening: true });
+        console.info('[VoiceTiming] activation-ready-ms', Math.round(performance.now() - activationStarted));
+      }
       if (event.event === 'volumechange') update({ audioLevel: Math.max(0, Math.min(1, (event.value || 0) / 10)) });
       if (event.event === 'result') {
         text.current = event.results?.[0]?.transcript || '';
@@ -133,13 +142,13 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
         if (final.trim()) void processText(final, token);
         else {
           busy.current = false;
-          update({ state: 'IDLE', errorMessage: 'No speech detected. Tap the mic to try again.' });
+          update({ state: 'ERROR', errorMessage: 'No speech detected. Tap the mic to try again.' });
           armRef.current();
         }
       }
       if (event.event === 'interrupted') {
         cancel();
-        update({ errorMessage: 'Voice was interrupted. Use the microphone to continue.' });
+        update({ state: 'ERROR', errorMessage: 'Voice was interrupted. Use the microphone to continue.' });
       }
     });
   }, [cancel, eligible, processText, update]);
@@ -163,26 +172,35 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
       if ((event as CustomEvent).detail === 'dictation') { cancel(); dictating.current = true; }
     };
     const onReleased = () => { dictating.current = false; armRef.current(); };
+    const onBackground = () => {
+      ttsService.pauseForBackground();
+      cancel(true);
+    };
+    const onPlaybackChanged = () => {
+      if (!ttsService.playbackInterruption()) queueMicrotask(() => armRef.current());
+    };
     const unsubscribe = listenNativeVoice(event => {
       if (event.event === 'appState') {
         foreground.current = Boolean(event.active);
         if (!event.active) {
           const wasBusy = busy.current;
-          cancel();
+          onBackground();
           if (wasBusy) update({ errorMessage: 'Voice is paused. Use the microphone when you return.' });
         }
         else { wakeBlocked.current = false; armRef.current(); }
       }
     });
     const onVisibility = () => {
-      if (document.hidden || messagePlaybackActive()) cancel();
+      if (document.hidden) onBackground();
+      else if (messagePlaybackActive()) cancel(true);
       else if (foreground.current) { wakeBlocked.current = false; armRef.current(); }
     };
     window.addEventListener(MESSAGE_PLAYBACK_EVENT, onVisibility);
+    window.addEventListener(PLAYBACK_INTERRUPTION_EVENT, onPlaybackChanged);
     window.addEventListener('airaNativeReady', onReady);
     window.addEventListener('airaVoiceOwner', onOwner);
     window.addEventListener('airaDictationEnd', onReleased);
-    window.addEventListener('pagehide', cancel);
+    window.addEventListener('pagehide', onBackground);
     document.addEventListener('visibilitychange', onVisibility);
     requestNativeReady();
     onReady();
@@ -190,10 +208,11 @@ export const NativeVoiceEngine = forwardRef<VoiceEngineHandle, VoiceEngineProps>
       mounted.current = false;
       cancel(); unsubscribe();
       window.removeEventListener(MESSAGE_PLAYBACK_EVENT, onVisibility);
+      window.removeEventListener(PLAYBACK_INTERRUPTION_EVENT, onPlaybackChanged);
       window.removeEventListener('airaNativeReady', onReady);
       window.removeEventListener('airaVoiceOwner', onOwner);
       window.removeEventListener('airaDictationEnd', onReleased);
-      window.removeEventListener('pagehide', cancel);
+      window.removeEventListener('pagehide', onBackground);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [cancel, update]);
