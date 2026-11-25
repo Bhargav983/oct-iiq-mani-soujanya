@@ -246,6 +246,21 @@
   color: #1A83B1;
 }
 
+.aira-mention-edit.btn {
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  color: #1a83b1;
+  background-color: rgba(26, 131, 177, 0.08);
+  border-color: transparent;
+}
+
+.aira-mention-edit.btn:hover,
+.aira-mention-edit.btn:focus-visible {
+  color: #fff;
+  background-color: #1a83b1;
+}
+
 .aira-mention-item.active {
   background: rgba(26, 131, 177, 0.12);
   color: #1A83B1;

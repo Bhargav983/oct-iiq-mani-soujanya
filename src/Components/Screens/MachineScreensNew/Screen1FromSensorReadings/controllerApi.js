@@ -1,5 +1,14 @@
 const CONTROLLER_URL = "https://mdata.air2o.net/controllers/";
 
+export function postControllerCommand(payload, signal = undefined) {
+  return fetch(CONTROLLER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
 export const sendRefreshCommand = async (pcbSerialNumber, sensorData) => {
   const payload = {
     Header: "0xAA",
