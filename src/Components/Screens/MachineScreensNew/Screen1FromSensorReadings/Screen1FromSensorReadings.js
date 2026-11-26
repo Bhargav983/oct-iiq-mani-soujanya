@@ -24,7 +24,7 @@ import {
   PULL_THRESHOLD,
   SWITCHING_MESSAGES,
 } from "./constants";
-import { sendRefreshCommand } from "./controllerApi";
+import { postControllerCommand, sendRefreshCommand } from "./controllerApi";
 import {
   canStartPullRefresh,
   getPullGesture,
@@ -439,11 +439,7 @@ const fetchAllAlarms = async () => {
 
       console.log("🌡️ Sending temperature command:", payload);
 
-      const response = await fetch("https://mdata.air2o.net/controllers/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await postControllerCommand(payload);
 
       if (!response.ok) {
         throw new Error("Failed to send temperature command");

@@ -4,7 +4,9 @@ import type { Language, SuggestedAction, Machine } from '../types';
 import { t } from '../i18n/strings';
 import { QuickReplyBar } from './QuickReplyBar';
 import { useInlineDictation } from '../hooks/useInlineDictation';
-import { getMachines } from '../services/machineService';
+import { cacheSingleMachine, getMachineById, getMachines } from '../services/machineService';
+import EditServiceItemModal from '../../Components/Screens/MachineScreen/EditServiceItemModal';
+import { useVoiceAssistantContext } from '../context/VoiceAssistantContext';
 import { match } from 'assert/strict';
 
 const LANGS: { code: Language; native: string }[] = [
@@ -40,6 +42,8 @@ export function ChatInput({
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIndex, setMentionIndex] = useState(-1);
   const [showMentionPopover, setShowMentionPopover] = useState(false);
+  const [editingMachine, setEditingMachine] = useState<Machine | null>(null);
+  const { userId, companyId } = useVoiceAssistantContext();
   const isRtl = lang === 'ar';
   const dictation = useInlineDictation(lang, (spokenText) => {
     setText((current) => `${current}${current.trim() ? ' ' : ''}${spokenText}`);
@@ -150,10 +154,10 @@ export function ChatInput({
                   <div className="aira-mention-header">Machines matching "{mentionQuery}"</div>
                 )}
                 {mentionItems.map((machine, index) => (
+                  <div key={machine.id} className="d-flex align-items-center gap-1">
                   <button
-                    key={machine.id}
                     type="button"
-                    className={`aira-mention-item ${index === 0 ? 'active' : ''}`}
+                    className={`aira-mention-item flex-grow-1 ${index === 0 ? 'active' : ''}`}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -184,6 +188,16 @@ export function ChatInput({
                       </div>
                     </div>
                   </button>
+                  {machine.service_item_id && userId && companyId && (
+                    <Button type="button" size="sm" variant="light"
+                      className="aira-mention-edit rounded-circle flex-shrink-0"
+                      aria-label={`Edit name for ${machine.service_item_name}`}
+                      title={`Edit name for ${machine.service_item_name}`}
+                      onClick={() => setEditingMachine(machine)}>
+                      <i className="bi bi-pencil" aria-hidden="true" />
+                    </Button>
+                  )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -276,6 +290,19 @@ export function ChatInput({
           )}
         </div>
       </div>
+      {editingMachine && (
+        <EditServiceItemModal
+          show
+          serviceItem={editingMachine}
+          userId={userId}
+          companyId={companyId}
+          handleClose={() => setEditingMachine(null)}
+          onUpdate={(updatedItem: { service_item_name: string }) => {
+            const current = getMachineById(editingMachine.id) ?? editingMachine;
+            cacheSingleMachine({ ...current, service_item_name: updatedItem.service_item_name });
+          }}
+        />
+      )}
     </div>
   );
 }

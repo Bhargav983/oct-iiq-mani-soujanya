@@ -54,7 +54,7 @@ export type Action =
   | { type: 'controls'; machineId: string }
   | { type: 'raiseService'; machineId?: string }
   | { type: 'checkMachineFirst'; machineId?: string }
-  | { type: 'setControl'; machineId: string; setting: 'power' | 'temperature' | 'fan' | 'mode'; value: string | number | boolean }
+  | { type: 'setControl'; machineId: string; serviceItemId?: string; machineName?: string; setting: 'power' | 'temperature' | 'fan' | 'mode'; value: string | number | boolean }
   | { type: 'confirmChange' }
   | { type: 'cancelChange' }
   | { type: 'serviceSelectMachine'; machineId: string }

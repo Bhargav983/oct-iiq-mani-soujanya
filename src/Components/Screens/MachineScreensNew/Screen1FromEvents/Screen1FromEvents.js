@@ -23,7 +23,7 @@ import {
   PROCESSING_MESSAGES,
   PULL_THRESHOLD,
 } from "../Screen1FromSensorReadings/constants";
-import { sendRefreshCommand } from "../Screen1FromSensorReadings/controllerApi";
+import { postControllerCommand, sendRefreshCommand } from "../Screen1FromSensorReadings/controllerApi";
 import {
   canStartPullRefresh,
   getPullGesture,
@@ -547,11 +547,7 @@ const fetchAllAlarms = async () => {
 
       beginPendingCommand(payload);
 
-      const response = await fetch("https://mdata.air2o.net/controllers/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await postControllerCommand(payload);
 
       if (!response.ok) {
         throw new Error("Failed to send temperature command");

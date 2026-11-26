@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Card } from 'react-bootstrap';
-import type { Machine, Language, FanSpeed, MachineMode } from '../types';
+import type { Action, Machine, Language, FanSpeed, MachineMode } from '../types';
+import { MAX_SETPOINT, MIN_SETPOINT } from '../services/temperatureCommand';
 import { t } from '../i18n/strings';
 import { trFan, trMode } from './MachineStatusCard';
 
@@ -11,13 +12,19 @@ export function MachineControlsCard({
 }: {
   machine: Machine;
   lang: Language;
-  onAction: (a: { type: string; machineId: string; setting?: string; value?: any }) => void;
+  onAction: (a: Action) => void;
 }) {
   const s = t(lang);
   const [power, setPower] = useState(machine.power);
   const [temp, setTemp] = useState(machine.set_temperature);
   const [fan, setFan] = useState<FanSpeed>(machine.fan_speed);
   const [mode, setMode] = useState<MachineMode>(machine.mode);
+  function changeTemperature(delta: number) {
+    const value = Math.min(MAX_SETPOINT, Math.max(MIN_SETPOINT, Math.round(temp) + delta));
+    setTemp(value);
+    onAction({ type: 'setControl', machineId: machine.id, serviceItemId: machine.service_item_id,
+      machineName: machine.service_item_name, setting: 'temperature', value });
+  }
 
   return (
     <Card className="aira-card aira-glass">
@@ -39,11 +46,11 @@ export function MachineControlsCard({
 
           <Section label={s.temperature}>
             <div className="d-flex align-items-center justify-content-center gap-3">
-              <RoundBtn onClick={() => { const v = Math.max(16, temp - 1); setTemp(v); onAction({ type: 'setControl', machineId: machine.id, setting: 'temperature', value: v }); }}>
+              <RoundBtn onClick={() => changeTemperature(-1)}>
                 <i className="bi bi-dash-lg" />
               </RoundBtn>
               <div className="fw-bold fs-4" style={{ minWidth: 80, textAlign: 'center' }}>{temp}°C</div>
-              <RoundBtn onClick={() => { const v = Math.min(30, temp + 1); setTemp(v); onAction({ type: 'setControl', machineId: machine.id, setting: 'temperature', value: v }); }}>
+              <RoundBtn onClick={() => changeTemperature(1)}>
                 <i className="bi bi-plus-lg" />
               </RoundBtn>
             </div>

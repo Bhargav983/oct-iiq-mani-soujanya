@@ -31,7 +31,7 @@ export type N8nCard =
   | { type: 'status'; machine: Machine }
   | { type: 'statusSummary'; summary: { total: number; online: number; offline: number }; offline?: Machine[] }
   | { type: 'controls'; machine: Machine }
-  | { type: 'confirmation'; machineName: string; label: string }
+  | { type: 'confirmation'; machineName: string; label: string; command?: { setting: 'temperature'; serviceItemId: string; value: number } }
   | { type: 'serviceSuccess'; request: ServiceRequest }
   | { type: 'serviceDetails'; request: ServiceRequest }
   | { type: 'quickActions' }
@@ -111,7 +111,7 @@ export function mapResponse(response: N8nResponse, chatInput?: string): {
   }
 
   // Always render the plain text reply when present, even if cards are also returned.
-  if (responseText) {
+  if (responseText && !messages.some(message => message.data?.temperatureConfirmation)) {
     messages.push({
       id: createMessageId('api'),
       role: 'assistant',
@@ -195,8 +195,19 @@ function cardToMessage(card: N8nCard, now: number, suggestedActions?: SuggestedA
     }
     case 'controls':
       return { ...base, kind: 'controls', data: { machine: normalizeMachine(card.machine) }, suggestedActions };
-    case 'confirmation':
-      return { ...base, kind: 'confirmation', data: { machineName: card.machineName, label: card.label }, suggestedActions };
+    case 'confirmation': {
+      const label = typeof card.label === 'string' ? card.label.trim() : '';
+      const machineName = typeof card.machineName === 'string' ? card.machineName.trim() : '';
+      const legacy = /^set (?:temp(?:erature)?|setpoint) to (\d{1,2})\s*(?:°\s*C|degrees? Celsius)\??$/i.exec(label);
+      const structured = card.command?.setting === 'temperature';
+      const temperatureConfirmation = structured || /\b(?:temp(?:erature)?|setpoint)\b/i.test(label);
+      const temperatureCommand = structured && machineName && typeof card.command.serviceItemId === 'string' && card.command.serviceItemId.trim()
+        ? { machineId: card.command.serviceItemId.trim(), machineName, temperature: card.command.value }
+        : !structured && legacy && machineName
+          ? { machineName, temperature: Number(legacy[1]) }
+          : undefined;
+      return { ...base, kind: 'confirmation', data: { machineName, label: label.replace(/\?$/, ''), temperatureConfirmation, temperatureCommand }, suggestedActions };
+    }
     case 'serviceSuccess':
       return { ...base, kind: 'serviceSuccess', data: { request: card.request }, suggestedActions };
     case 'serviceDetails':

@@ -159,6 +159,8 @@ function renderAssistant(
         <ConfirmationCard
           machineName={message.data.machineName}
           label={message.data.label}
+          temperatureConfirmation={message.data.temperatureConfirmation}
+          temperatureCommand={message.data.temperatureCommand}
           lang={lang}
           onAction={(a) => onAction(a as Action)}
         />

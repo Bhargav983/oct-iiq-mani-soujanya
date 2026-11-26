@@ -221,9 +221,16 @@ Renders a simple confirmation action card for confirming pending setting changes
 {
   "type": "confirmation",
   "machineName": "Main Hall Unit",
-  "label": "Set temperature to 23°C"
+  "label": "Set temperature to 23°C",
+  "command": {
+    "setting": "temperature",
+    "serviceItemId": "123",
+    "value": 23
+  }
 }
 ```
+
+For a temperature request, return the exact service-item ID and the whole Celsius setpoint. Generate the card before any controller write. The client submits the command when the user taps Confirm and reports completion after controller telemetry confirms the setpoint.
 
 ---
 

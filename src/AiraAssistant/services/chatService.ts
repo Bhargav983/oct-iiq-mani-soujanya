@@ -161,6 +161,26 @@ export function dispatch(
   // Local-only actions that don't need the webhook (pure UI state transitions).
   if (action.type === 'setControl') {
     const label = describeControl(action.setting, action.value, s);
+    if (action.setting === 'temperature') {
+      const machine = getMachineById(action.machineId);
+      const machineName = action.machineName || machine?.service_item_name || 'Selected machine';
+      return {
+        loadingMessage: null,
+        run: async () => ({
+          messages: [assistant('confirmation', {
+            machineName,
+            label,
+            temperatureConfirmation: true,
+            temperatureCommand: {
+              machineId: action.serviceItemId || machine?.service_item_id || action.machineId,
+              machineName,
+              temperature: Number(action.value),
+            },
+          })],
+          contextPatch: {},
+        }),
+      };
+    }
     const pending: PendingControl = {
       machineId: action.machineId,
       setting: action.setting,
