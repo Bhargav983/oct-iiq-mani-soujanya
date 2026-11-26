@@ -20,6 +20,7 @@ import remarkGfm from 'remark-gfm';
 import { useRef, useState, useEffect } from 'react';
 import { playMessage, stopMessagePlayback } from '../services/messagePlayback';
 import { useVoiceAssistantContext } from '../context/VoiceAssistantContext';
+import { normalizeDisplayMarkdown, stripMarkdownForSpeech } from '../services/assistantResponse';
 
 export function ChatMessageView({
   message,
@@ -82,23 +83,12 @@ function renderAssistant(
       }
       return (
         <div className="d-flex flex-column gap-1">
-          <div className="aira-bubble assistant">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                // Customize markdown components to match the app's styling
-                p: ({ children }) => <p className="mb-2">{children}</p>,
-                strong: ({ children }) => <strong className="fw-bold">{children}</strong>,
-                em: ({ children }) => <em className="fst-italic">{children}</em>,
-                ul: ({ children }) => <ul className="mb-2 ps-3">{children}</ul>,
-                ol: ({ children }) => <ol className="mb-2 ps-3">{children}</ol>,
-                li: ({ children }) => <li className="mb-1">{children}</li>,
-              }}
-            >
-              {message.text || ''}
+          <div className="aira-bubble assistant aira-markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {normalizeDisplayMarkdown(message.text || '')}
             </ReactMarkdown>
           </div>
-          <SpeakButton text={message.text ?? ''} lang={lang} />
+          <SpeakButton text={message.speechText ?? stripMarkdownForSpeech(message.text ?? '')} lang={lang} />
         </div>
       );
 
@@ -109,7 +99,11 @@ function renderAssistant(
       return (
         <div>
           <p className="small text-secondary mb-2">
-            {lang === 'ar' ? 'إليك أجهزتك:' : 'Here are your machines:'}
+            {lang === 'ar'
+              ? 'إليك أجهزتك:'
+              : lang === 'hi'
+              ? 'यहाँ आपकी मशीनें हैं:'
+              : 'Here are your machines:'}
           </p>
           {message.data.machines.map((m: Machine) => (
             <MachineCard key={m.id} machine={m} lang={lang} onAction={(a) => onAction(a as Action)} />
@@ -137,7 +131,11 @@ function renderAssistant(
           {offline.length > 0 && (
             <>
               <p className="small text-secondary mb-2">
-                {summary.offline} of {summary.total} {lang === 'ar' ? 'من أجهزتك غير متصلة.' : 'machines are offline.'}
+                {lang === 'ar'
+                  ? `${summary.offline} من ${summary.total} أجهزة غير متصلة.`
+                  : lang === 'hi'
+                  ? `${summary.total} में से ${summary.offline} मशीनें ऑफ़लाइन हैं।`
+                  : `${summary.offline} of ${summary.total} machines are offline.`}
               </p>
               {offline.map((m: Machine) => (
                 <MachineCard key={m.id} machine={m} lang={lang} onAction={(a) => onAction(a as Action)} />
@@ -238,7 +236,12 @@ function SpeakButton({ text, lang }: { text: string; lang: Language }) {
       onClick={() => { void listen(); }}
       aria-label={error || undefined}
     >
-      <i className="bi bi-volume-up" style={{ color: '#1A83B1' }} /> {status === 'loading' ? 'Preparing audio… Stop' : status === 'playing' ? 'Stop' : s.listen}
+      <i className="bi bi-volume-up" style={{ color: '#1A83B1' }} />{' '}
+      {status === 'loading'
+        ? (lang === 'ar' ? 'جارٍ تحضير الصوت… إيقاف' : lang === 'hi' ? 'ऑडियो तैयार हो रहा है… रोकें' : 'Preparing audio… Stop')
+        : status === 'playing'
+        ? s.stop
+        : s.listen}
       {error && <span role="alert"> {error}</span>}
     </Button>
   );

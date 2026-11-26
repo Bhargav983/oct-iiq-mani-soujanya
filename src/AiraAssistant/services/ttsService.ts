@@ -20,6 +20,11 @@ type PcmReader = {
  * fixed constant rather than something read out of the stream.
  */
 const PCM_SAMPLE_RATE = 24000;
+/** Fade the first 10 ms to avoid starting the hardware on a non-zero sample. */
+const STARTUP_FADE_SAMPLES = 240;
+/** Fade the final 15 ms, then leave 40 ms of silence before closing the context. */
+const ENDING_FADE_SAMPLES = 360;
+const ENDING_SILENCE_SAMPLES = 960;
 /**
  * Jitter buffer: hold this much decoded audio before the first block starts so
  * an uneven first network burst cannot underrun the graph (~120 ms at 24 kHz).
@@ -237,8 +242,6 @@ class TTSService {
     // Register for the global teardown that suspends voice audio contexts.
     const voiceWindow = window as Window & { __airaVoiceAudioContexts__?: Set<AudioContext> };
     (voiceWindow.__airaVoiceAudioContexts__ ??= new Set()).add(context);
-    // iOS/Safari start the context suspended until a user gesture resumes it.
-    if (context.state === 'suspended') void context.resume().catch(() => undefined);
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -273,19 +276,33 @@ class TTSService {
       let playbackEnded = false;
 
       /** Schedules decoded PCM immediately after whatever is already queued. */
-      const schedule = (samples: Float32Array) => {
+      const schedule = (samples: Float32Array, final = false) => {
         if (!samples.length || session.stopped) return;
+        if (!scheduledSamples) {
+          const fadeSamples = Math.min(STARTUP_FADE_SAMPLES, samples.length);
+          for (let i = 0; i < fadeSamples; i += 1) samples[i] *= i / STARTUP_FADE_SAMPLES;
+        }
+        if (final) {
+          const fadeSamples = Math.min(ENDING_FADE_SAMPLES, samples.length);
+          const fadeStart = samples.length - fadeSamples;
+          for (let i = 0; i < fadeSamples; i += 1) {
+            samples[fadeStart + i] *= (fadeSamples - 1 - i) / Math.max(1, fadeSamples - 1);
+          }
+        }
         const buffer = context.createBuffer(1, samples.length, session.sampleRate);
         buffer.copyToChannel(samples, 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
         source.connect(context.destination);
-        // Seamless chaining: start exactly when the previous block ends, and
-        // never before the playhead so a slow chunk cannot schedule in the past.
-        const startAt = Math.max(nextStartTime, context.currentTime);
+        // Chain seamlessly while buffered audio is ahead. After an underrun,
+        // re-anchor just ahead of the playhead instead of starting in the past.
+        const startAt = Math.max(nextStartTime, context.currentTime + 0.03);
         source.start(startAt);
         nextStartTime = startAt + samples.length / session.sampleRate;
         scheduledSamples += samples.length;
+        // A previous block may have ended while the network was stalled. This
+        // new block is now the tail whose onended must settle a drained reply.
+        playbackEnded = false;
         lastSource = source;
         session.sources.push(source);
         source.onended = () => {
@@ -294,7 +311,6 @@ class TTSService {
           // (stalled mid-reply), wait for the drain to settle the turn so the
           // caller does not move on and cut the remaining audio off.
           console.log('🔊 [TTS] Streaming playback completed');
-          this.finishPlayback = null;
           playbackEnded = true;
           if (bodyDone) {
             void context.close().catch(() => undefined);
@@ -311,12 +327,12 @@ class TTSService {
         }
       };
 
-      const flushPending = () => {
+      const flushPending = (final = false) => {
         if (!pending.length) return;
         const merged = concatFloat(pending);
         pending = [];
         pendingSamples = 0;
-        schedule(merged);
+        schedule(merged, final);
       };
 
       /**
@@ -342,9 +358,17 @@ class TTSService {
 
       const pump = async (): Promise<void> => {
         try {
+          // Do not put audio on a suspended context's timeline: Chrome can
+          // otherwise expose the first buffered samples as an audible click.
+          if (context.state === 'suspended') await context.resume();
           while (!session.stopped && generation === this.generation) {
             const { done, value } = await reader.read();
-            if (done || !value?.length) break;
+            if (done) {
+              // A lone byte is not a complete PCM16 sample and must not become noise.
+              carry = null;
+              break;
+            }
+            if (!value?.length) break;
             received.push(value);
             receivedBytes += value.length;
             const { samples, carry: nextCarry } = decode(value, carry);
@@ -367,8 +391,19 @@ class TTSService {
             }
           }
           if (session.stopped || generation !== this.generation) return;
-          // Body drained: flush whatever is still buffered so nothing is cut off.
-          flushPending();
+          bodyDone = true;
+          // Body drained: fade the final PCM block, even if it was scheduled
+          // before the network finished, then append silence before closing.
+          if (lastSource?.buffer) {
+            const finalSamples = lastSource.buffer.getChannelData(0);
+            const fadeSamples = Math.min(ENDING_FADE_SAMPLES, finalSamples.length);
+            const fadeStart = finalSamples.length - fadeSamples;
+            for (let i = 0; i < fadeSamples; i += 1) {
+              finalSamples[fadeStart + i] *= (fadeSamples - 1 - i) / Math.max(1, fadeSamples - 1);
+            }
+          }
+          flushPending(true);
+          if (scheduledSamples) schedule(new Float32Array(ENDING_SILENCE_SAMPLES));
           if (cacheKey && received.length) this.remember(cacheKey, flattenBytes(received, receivedBytes));
           if (!session.started) {
             // Reply shorter than the jitter buffer, or the stream carried no audio.
@@ -384,7 +419,6 @@ class TTSService {
             console.log('🔊 [TTS] Streaming playback started');
             onPlaybackStart?.();
           }
-          bodyDone = true;
           if (!lastSource || playbackEnded) {
             void context.close().catch(() => undefined);
             settle();

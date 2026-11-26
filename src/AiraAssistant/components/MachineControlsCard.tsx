@@ -30,7 +30,7 @@ export function MachineControlsCard({
     <Card className="aira-card aira-glass">
       <Card.Body className="aira-card-body">
         <h6 className="mb-0 fw-bold fs-5" text-center style={{ color: '#1A83B1' }}>
-          {lang === 'ar' ? 'تحكم' : 'Control'} {machine.service_item_name}
+          {lang === 'ar' ? 'تحكم' : lang === 'hi' ? 'नियंत्रण' : 'Control'} {machine.service_item_name}
         </h6>
         <div className="mt-3 d-flex flex-column gap-3 align-items-center">
           <Section label={s.power}>

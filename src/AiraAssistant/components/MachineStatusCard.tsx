@@ -22,7 +22,11 @@ export function MachineStatusCard({
             <StatusBadge online={false} lang={lang} />
           </div>
           <div className="mt-3 rounded-3 bg-light p-3 small text-muted">
-            {lang === 'ar' ? 'لا يمكن قراءة الحالة لأن الجهاز غير متصل.' : 'Status is unavailable because this machine is offline.'}
+            {lang === 'ar'
+              ? 'لا يمكن قراءة الحالة لأن الجهاز غير متصل.'
+              : lang === 'hi'
+              ? 'स्थिति उपलब्ध नहीं है क्योंकि यह मशीन ऑफ़लाइन है।'
+              : 'Status is unavailable because this machine is offline.'}
           </div>
           <div className="mt-3">
             <Button variant="outline-primary" size="sm" className="aira-action-btn" onClick={() => onAction({ type: 'raiseService', machineId: machine.id })}>

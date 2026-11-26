@@ -19,6 +19,7 @@ import { createMessageId } from '../utils/messageId';
 import { isVoiceSupported } from '../utils/voiceSupport';
 import { PLAYBACK_INTERRUPTION_EVENT, ttsService } from '../services/ttsService';
 import { stopMessagePlayback } from '../services/messagePlayback';
+import { resetChatSessionId } from '../services/chatSession';
 
 function welcomeMessage(lang: Language): ChatMessage {
   return { id: createMessageId('m'), role: 'assistant', kind: 'text', text: t(lang).welcome, timestamp: Date.now() };
@@ -243,7 +244,7 @@ export function AssistantPage() {
       // Extract the assistant's reply text from the response messages for TTS
       for (const msg of responseMessages) {
         if (msg.role === 'assistant' && msg.kind === 'text' && msg.text) {
-          replyText = msg.text;
+          replyText = msg.speechText ?? msg.text;
           break;
         }
       }
@@ -333,6 +334,7 @@ export function AssistantPage() {
 
   function newChat() {
     stopMessagePlayback();
+    resetChatSessionId();
     setMessages([welcomeMessage(lang), quickActionsMessage(lang)]);
     setCtx({ ...makeInitialContext(), lang });
     setHiddenSuggestionsForMessageId(null);
@@ -344,7 +346,27 @@ export function AssistantPage() {
       {/* 🧪 TEMPORARY TEST COMPONENT */}
       {/* <VADTest /> */}
       <AssistantHeader lang={lang} onLangChange={setLang} onNewChat={() => setShowNewChatConfirm(true)} />
-      {voiceSnapshot.errorMessage && <div role="alert" className="px-3 py-2 small text-danger">{voiceSnapshot.errorMessage}</div>}
+      {voiceSnapshot.errorMessage && (
+        voiceSnapshot.errorMessage === 'Reconnecting voice...' ? (
+          <div role="status" className="aira-voice-status-pill">
+            <i className="bi bi-arrow-repeat" aria-hidden="true" />{' '}
+            {lang === 'ar'
+              ? 'جارٍ إعادة الاتصال بالصوت...'
+              : lang === 'hi'
+              ? 'वॉइस पुनः कनेक्ट हो रहा है...'
+              : 'Reconnecting voice...'}
+          </div>
+        ) : (
+          <div role="alert" className="aira-voice-error">
+            <span>{voiceSnapshot.errorMessage}</span>
+            {voiceSnapshot.state === 'ERROR' && !voiceSnapshot.errorMessage.includes('Microphone access is blocked') && (
+              <Button size="sm" variant="link" onClick={openVoice}>
+                {lang === 'ar' ? 'إعادة الاتصال' : lang === 'hi' ? 'पुनः कनेक्ट करें' : 'Reconnect'}
+              </Button>
+            )}
+          </div>
+        )
+      )}
    {interruption && (
   <div className="d-flex flex-wrap gap-2 align-items-center px-3 py-2">
 
@@ -428,6 +450,8 @@ export function AssistantPage() {
             <InlineVoiceDock
               voiceState={voiceSnapshot.state}
               audioLevel={voiceSnapshot.audioLevel}
+              errorMessage={voiceSnapshot.errorMessage}
+              lang={lang}
               onExit={handleEndVoiceSession}
               onStopPlayback={cancelPlayback}
             />
@@ -442,6 +466,8 @@ export function AssistantPage() {
           voiceState={voiceSnapshot.state}
           audioLevel={voiceSnapshot.audioLevel}
           transcript={voiceSnapshot.transcript}
+          errorMessage={voiceSnapshot.errorMessage}
+          lang={lang}
           onEndSession={handleEndVoiceSession}
           onSwitchToKeyboard={handleEndVoiceSession}
           onStopPlayback={cancelPlayback}

@@ -16,8 +16,8 @@ class FakeWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
-  onclose: (() => void) | null = null;
-  sent: ArrayBuffer[] = [];
+  onclose: ((event: { code: number }) => void) | null = null;
+  sent: (ArrayBuffer | string)[] = [];
   closed = false;
 
   constructor(url: string) {
@@ -25,13 +25,13 @@ class FakeWebSocket {
     FakeWebSocket.instances.push(this);
   }
 
-  send(data: ArrayBuffer): void { this.sent.push(data); }
+  send(data: ArrayBuffer | string): void { this.sent.push(data); }
   close(): void { this.closed = true; this.readyState = 3; }
 
   open(): void { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }
   emitMessage(data: unknown): void { this.onmessage?.({ data }); }
   emitError(): void { this.onerror?.(); }
-  emitClose(): void { this.readyState = 3; this.onclose?.(); }
+  emitClose(code = 1006): void { this.readyState = 3; this.onclose?.({ code }); }
 }
 
 describe('GeminiVoiceSocket streaming transport', () => {
@@ -43,7 +43,7 @@ describe('GeminiVoiceSocket streaming transport', () => {
   let socket: InstanceType<typeof GeminiVoiceSocket>;
 
   const lastPcm16 = (ws: FakeWebSocket): Int16Array =>
-    new Int16Array(ws.sent[ws.sent.length - 1]);
+    new Int16Array(ws.sent[ws.sent.length - 1] as ArrayBuffer);
 
   beforeAll(() => {
     // @ts-expect-error test double replaces the browser WebSocket
@@ -165,8 +165,8 @@ describe('GeminiVoiceSocket streaming transport', () => {
     first.open();
     first.emitClose();
 
-    expect(errors).toContain('Gemini speech connection closed.');
-    expect(stateChanges).toContain('ERROR');
+    expect(errors).toHaveLength(0);
+    expect(stateChanges).toContain('RECONNECTING');
 
     jest.advanceTimersByTime(50);
     expect(FakeWebSocket.instances).toHaveLength(2);
@@ -175,6 +175,58 @@ describe('GeminiVoiceSocket streaming transport', () => {
 
     FakeWebSocket.instances[1].emitMessage(JSON.stringify({ transcript: 'back', is_final: false }));
     expect(events).toEqual([{ transcript: 'back', isFinal: false }]);
+  });
+
+  it('retries three times before exposing a friendly terminal error', () => {
+    socket.connect();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      FakeWebSocket.instances[attempt].emitClose();
+      jest.advanceTimersByTime(50);
+    }
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    FakeWebSocket.instances[3].emitClose();
+    expect(errors).toEqual(['Voice connection paused. Tap to reconnect.']);
+    expect(stateChanges.at(-1)).toBe('ERROR');
+    jest.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+  });
+
+  it('sends application heartbeats and ignores pong control frames', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+    jest.advanceTimersByTime(15000);
+    expect(JSON.parse(String(ws.sent.at(-1)))).toMatchObject({ type: 'ping' });
+    ws.emitMessage(JSON.stringify({ type: 'pong' }));
+    expect(events).toEqual([]);
+  });
+
+  it('keeps idle socket open without pong and reconnects if pong stops arriving', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+    jest.advanceTimersByTime(60000);
+    expect(ws.closed).toBe(false);
+
+    ws.emitMessage(JSON.stringify({ type: 'pong' }));
+    jest.advanceTimersByTime(60000);
+    expect(ws.closed).toBe(true);
+    ws.emitClose();
+    expect(stateChanges).toContain('RECONNECTING');
+  });
+
+  it('handles clean idle close (1000) without error and lazily reopens on next audio frame', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+    ws.emitClose(1000);
+    expect(errors).toEqual([]);
+    expect(socket.getState()).toBe('DISCONNECTED');
+
+    socket.sendAudioChunk(new Float32Array([0.25]));
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    FakeWebSocket.instances[1].open();
+    expect(FakeWebSocket.instances[1].sent).toHaveLength(1);
   });
 
   it('disconnect closes the socket, drops queued frames, and stops reconnection', () => {
@@ -199,7 +251,7 @@ describe('GeminiVoiceSocket streaming transport', () => {
     jest.advanceTimersByTime(25);
     await expect(pending).resolves.toBeUndefined();
 
-    FakeWebSocket.instances[0].emitClose();
+    socket.disconnect();
     const rejected = socket.whenConnected(1000);
     await expect(rejected).rejects.toThrow('disconnected');
   });

@@ -144,7 +144,7 @@ export function ChatInput({
   return (
     <div className="aira-composer" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))', flexShrink: 0 }}>
       <div className="mx-auto d-flex flex-column" style={{ maxWidth: '42rem' }} dir={isRtl ? 'rtl' : 'ltr'}>
-        <QuickReplyBar actions={suggestedActions} disabled={disabled} onSelect={onQuickReply} />
+        <QuickReplyBar actions={suggestedActions} disabled={disabled} lang={lang} onSelect={onQuickReply} />
         <div className="aira-input-box-wrapper position-relative p-3">
           {/* Mention popover */}
           {showMentionPopover && mentionItems.length > 0 && !voiceDockOverride && (
@@ -252,7 +252,7 @@ export function ChatInput({
                     style={l.code === lang ? { backgroundColor: '#1A83B1', color: '#ffffff' } : undefined}
                   >
                     {l.native}
-                    {l.code === lang && <i className="bi bi-check-lg ms-2" style={{ color: '#1A83B1' }} />}
+                    {l.code === lang && <i className="bi bi-check-lg ms-2" style={{ color: '#ffffff' }} />}
                   </Dropdown.Item>
                 ))}
               </Dropdown.Menu>
@@ -285,7 +285,7 @@ export function ChatInput({
           )}
           {(dictation.listening || dictation.errorMessage) && (
             <div className="d-flex align-items-center px-2 pt-2 small">
-              <span className="text-muted text-truncate">{dictation.listening ? (dictation.interimText || 'Listening...') : dictation.errorMessage}</span>
+              <span className="text-muted text-truncate">{dictation.listening ? (dictation.interimText || s.listening) : dictation.errorMessage}</span>
             </div>
           )}
         </div>

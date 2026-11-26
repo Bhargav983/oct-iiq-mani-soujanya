@@ -109,6 +109,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant';
   kind: MessageKind;
   text?: string;
+  speechText?: string;
   data?: any;
   loadingText?: string;
   suggestedActions?: SuggestedAction[];
@@ -145,7 +146,7 @@ export type ChatContext = {
 
 export type VoiceState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SYNTHESIZING' | 'SPEAKING' | 'ERROR';
 
-export type VoiceSocketState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
+export type VoiceSocketState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'ERROR';
 
 export interface STTTranscriptEvent {
   isFinal: boolean;

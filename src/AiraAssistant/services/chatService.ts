@@ -7,7 +7,7 @@ import type {
   PendingControl,
 } from '../types';
 import { getMachineById } from './machineService';
-import { createServiceRequest, getRequestById } from './serviceRequestService';
+import { assistantErrorMessage } from './assistantResponse';
 import { callAssistant, mapResponse, type AuthParamsInput } from './api';
 import { t } from '../i18n/strings';
 import type { Language } from '../types';
@@ -109,8 +109,11 @@ function actionToChatInput(action: Action, ctx: ChatContext): string {
       return `Preferred time: ${action.time}`;
     case 'serviceEdit':
       return 'Edit service request';
-    case 'serviceSubmit':
-      return 'Submit service request';
+    case 'serviceSubmit': {
+      const machine = getMachineById(ctx.serviceDraft.machineId ?? '');
+      const problem = ctx.serviceDraft.problem === 'Other' ? ctx.serviceDraft.otherText : ctx.serviceDraft.problem;
+      return `Confirmed: create a service request for ${machine?.service_item_name ?? 'the selected machine'} (service item ${machine?.service_item_id ?? ctx.serviceDraft.machineId}), issue: ${problem}, preferred date: ${ctx.serviceDraft.date}, preferred time: ${ctx.serviceDraft.time}.`;
+    }
     case 'viewRequestDetails':
       return `Check service request details for ${action.requestId}`;
     case 'askAnother':
@@ -221,9 +224,9 @@ export function dispatch(
         const response = await callAssistant(chatInput, auth, ctx.lang);
         const { messages, contextPatch } = mapResponse(response, chatInput);
         return { messages, contextPatch };
-      } catch {
+      } catch (error) {
         return {
-          messages: [assistant('error')],
+          messages: [assistant('text', undefined, assistantErrorMessage(error))],
           contextPatch: {},
         };
       }
@@ -291,18 +294,6 @@ function localServiceFlow(action: Action, ctx: ChatContext): DispatchResult | nu
           messages: [assistant('serviceStep', { step: 1, draft: ctx.serviceDraft })],
           contextPatch: {},
         }),
-      };
-    }
-    case 'serviceSubmit': {
-      return {
-        loadingMessage: loading(t(ctx.lang).loadingService),
-        run: async () => {
-          const req = createServiceRequest(ctx.serviceDraft);
-          return {
-            messages: [assistant('serviceSuccess', { request: req })],
-            contextPatch: { lastRequestId: req.id, serviceDraft: emptyDraft() },
-          };
-        },
       };
     }
     case 'askAnother': {

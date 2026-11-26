@@ -1,14 +1,32 @@
-import type { VoiceState } from '../types';
+import type { Language, VoiceState } from '../types';
 import { CompactPillVisualizer } from './CompactPillVisualizer';
 import { toVisualizerState } from './WaveformVisualizer';
 
-const STAGE_TEXT: Record<VoiceState, string> = {
-  IDLE: 'Preparing microphone...',
-  LISTENING: 'Listening...',
-  PROCESSING: 'Thinking...',
-  SYNTHESIZING: 'Preparing...',
-  SPEAKING: 'Speaking...',
-  ERROR: 'Something went wrong',
+const STAGE_TEXT_BY_LANG: Record<Language, Record<VoiceState, string>> = {
+  en: {
+    IDLE: 'Preparing microphone...',
+    LISTENING: 'Listening...',
+    PROCESSING: 'Thinking...',
+    SYNTHESIZING: 'Preparing...',
+    SPEAKING: 'Speaking...',
+    ERROR: 'Voice connection paused',
+  },
+  ar: {
+    IDLE: 'جارٍ تحضير الميكروفون...',
+    LISTENING: 'جارٍ الاستماع...',
+    PROCESSING: 'جارٍ التفكير...',
+    SYNTHESIZING: 'جارٍ التحضير...',
+    SPEAKING: 'جارٍ التحدث...',
+    ERROR: 'تم إيقاف اتصال الصوت مؤقتاً',
+  },
+  hi: {
+    IDLE: 'माइक्रोफ़ोन तैयार हो रहा है...',
+    LISTENING: 'सुन रही हूँ...',
+    PROCESSING: 'सोच रही हूँ...',
+    SYNTHESIZING: 'तैयार हो रहा है...',
+    SPEAKING: 'बोल रही हूँ...',
+    ERROR: 'वॉइस कनेक्शन रुका है',
+  },
 };
 
 /**
@@ -21,16 +39,21 @@ const STAGE_TEXT: Record<VoiceState, string> = {
 export function InlineVoiceDock({
   voiceState,
   audioLevel,
+  errorMessage,
+  lang = 'en',
   onExit,
   onStopPlayback,
 }: {
   voiceState: VoiceState;
   audioLevel: number;
+  errorMessage?: string | null;
+  lang?: Language;
   onExit: () => void;
   /** Manual barge-in — halts TTS and returns the dock to listening. */
   onStopPlayback: () => void;
 }) {
-  const stageText = STAGE_TEXT[voiceState] ?? STAGE_TEXT.IDLE;
+  const dict = STAGE_TEXT_BY_LANG[lang] ?? STAGE_TEXT_BY_LANG.en;
+  const stageText = (voiceState === 'ERROR' && errorMessage) ? errorMessage : (dict[voiceState] ?? dict.IDLE);
   const visualizerState = toVisualizerState(voiceState);
   const isSpeaking = voiceState === 'SPEAKING';
 

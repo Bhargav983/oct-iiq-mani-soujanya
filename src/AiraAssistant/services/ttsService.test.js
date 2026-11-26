@@ -34,14 +34,18 @@ function streamedResponse(chunks) {
 }
 
 let audioContexts;
+let initialContextState = 'running';
+let resumeImplementation;
 const originalAudioContext = global.AudioContext;
 beforeEach(() => {
   audioContexts = [];
+  initialContextState = 'running';
+  resumeImplementation = undefined;
   global.AudioContext = jest.fn(() => {
     const scheduled = [];
     const context = {
-      currentTime: 0, state: 'running', destination: {},
-      resume: jest.fn().mockResolvedValue(undefined),
+      currentTime: 0, state: initialContextState, destination: {},
+      resume: jest.fn(() => resumeImplementation?.() ?? Promise.resolve()),
       suspend: jest.fn().mockResolvedValue(undefined),
       close: jest.fn().mockResolvedValue(undefined),
       createBuffer: jest.fn((channels, length, rate) => {
@@ -92,6 +96,63 @@ test('Hindi synthesis preserves spoken Unicode', async () => {
   await pending;
 });
 
+test('the first PCM block fades in over 10 ms', async () => {
+  const samples = Array.from({ length: 6000 }, () => 16384);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
+  const pending = playTTS('fade in');
+  await settle();
+  const [{ scheduled }] = audioContexts;
+  const decoded = scheduled[0].buffer.getChannelData();
+  expect(decoded[0]).toBe(0);
+  expect(decoded[120]).toBeCloseTo(0.25, 6);
+  expect(decoded[239]).toBeCloseTo((239 / 240) * 0.5, 6);
+  expect(decoded[240]).toBeCloseTo(0.5, 6);
+  scheduled.at(-1).onended();
+  await pending;
+});
+
+test('the final PCM block fades out and is followed by 40 ms of silence', async () => {
+  const samples = Array.from({ length: 6000 }, () => 16384);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
+  const pending = playTTS('fade out');
+  await settle();
+  const [{ scheduled }] = audioContexts;
+  expect(scheduled).toHaveLength(2);
+  const finalPcm = scheduled[0].buffer.getChannelData();
+  const silence = scheduled[1].buffer.getChannelData();
+  expect(finalPcm[5639]).toBeCloseTo(0.5, 6);
+  expect(finalPcm[5640]).toBeCloseTo(0.5, 6);
+  expect(finalPcm[5820]).toBeCloseTo(0.5 * (179 / 359), 6);
+  expect(finalPcm[5999]).toBe(0);
+  expect(silence).toHaveLength(960);
+  expect(silence.every(sample => sample === 0)).toBe(true);
+  scheduled.at(-1).onended();
+  await pending;
+});
+
+test('a suspended context resumes before PCM is read and scheduled', async () => {
+  initialContextState = 'suspended';
+  const samples = Array.from({ length: 6000 }, () => 1000);
+  let releaseResume;
+  const resumeGate = new Promise(resolve => { releaseResume = resolve; });
+  resumeImplementation = () => resumeGate;
+  const read = jest.fn(streamedResponse([pcm(samples)]).body.getReader().read);
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, body: { getReader: () => ({ read }) } });
+  const pending = playTTS('resume first');
+  await settle();
+  const [{ context, scheduled }] = audioContexts;
+  expect(context.resume).toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+  expect(scheduled).toHaveLength(0);
+  releaseResume();
+  await settle();
+  expect(read).toHaveBeenCalled();
+  expect(scheduled.length).toBeGreaterThan(0);
+  expect(context.resume.mock.invocationCallOrder[0]).toBeLessThan(scheduled[0].start.mock.invocationCallOrder[0]);
+  scheduled.at(-1).onended();
+  await pending;
+});
+
 test('raw PCM is decoded at 24 kHz without a WAV container', async () => {
   const samples = Array.from({ length: 12000 }, (_, i) => Math.round(8000 * Math.sin(i / 8)));
   global.fetch = jest.fn().mockResolvedValue(streamedResponse([pcm(samples)]));
@@ -136,18 +197,34 @@ test('odd-sized streamed chunks stay 16-bit aligned so the reply is not noise', 
 
   // Reassemble everything handed to the audio graph and compare it to the
   // source PCM; misalignment shows up as a flipped-sign ramp.
-  const total = scheduled.reduce((sum, source) => sum + source.buffer.length, 0);
+  const pcmSources = scheduled.slice(0, -1);
+  const total = pcmSources.reduce((sum, source) => sum + source.buffer.length, 0);
   const decoded = new Float32Array(total);
   let offset = 0;
-  scheduled.forEach((source) => {
+  pcmSources.forEach((source) => {
     decoded.set(source.buffer.getChannelData(), offset);
     offset += source.buffer.length;
   });
   expect(total).toBe(samples.length);
   samples.forEach((value, index) => {
-    expect(decoded[index]).toBeCloseTo(value / 32768, 6);
+    const fadeIn = index < 240 ? index / 240 : 1;
+    const fadeOut = index >= samples.length - 360 ? (samples.length - 1 - index) / 359 : 1;
+    expect(decoded[index]).toBeCloseTo((value / 32768) * fadeIn * fadeOut, 6);
   });
 
+  scheduled.at(-1).onended();
+  await pending;
+});
+
+test('a trailing odd byte is discarded rather than decoded as a partial sample', async () => {
+  const samples = Array.from({ length: 6000 }, () => 1000);
+  const bytes = pcm(samples);
+  global.fetch = jest.fn().mockResolvedValue(streamedResponse([bytes, Uint8Array.of(255)]));
+  const pending = playTTS('odd final byte');
+  await settle();
+  const [{ scheduled }] = audioContexts;
+  const decodedSamples = scheduled.slice(0, -1).reduce((sum, source) => sum + source.buffer.length, 0);
+  expect(decodedSamples).toBe(samples.length);
   scheduled.at(-1).onended();
   await pending;
 });
@@ -206,9 +283,50 @@ test('playback that finishes while the body is still downloading waits for the d
   expect(settled).toBe(false);
   releaseDrain();
   await settle();
-  // Drain completes, so the turn settles.
+  // Draining appends the tail silence; the turn settles only after it ends.
+  expect(settled).toBe(false);
+  scheduled.at(-1).onended();
+  await settle();
   expect(settled).toBe(true);
   await pending;
+});
+
+test('late PCM after an underrun re-anchors and waits for the new final block', async () => {
+  const first = pcm(Array.from({ length: 6000 }, () => 1000));
+  const second = pcm(Array.from({ length: 6000 }, () => 2000));
+  let releaseSecond;
+  const secondGate = new Promise(resolve => { releaseSecond = () => resolve({ done: false, value: new Uint8Array(second) }); });
+  let reads = 0;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    body: { getReader: () => ({
+      read: async () => {
+        reads += 1;
+        if (reads === 1) return { done: false, value: new Uint8Array(first) };
+        if (reads === 2) return secondGate;
+        return { done: true, value: undefined };
+      },
+    }) },
+  });
+  let settled = false;
+  const pending = playTTS('recover after a stall').then(() => { settled = true; });
+  await settle();
+  const [{ context, scheduled }] = audioContexts;
+  scheduled[0].onended();
+  context.currentTime = 2;
+  releaseSecond();
+  await settle();
+  expect(scheduled).toHaveLength(3);
+  expect(scheduled[1].start).toHaveBeenCalledWith(2.03);
+  expect(context.close).not.toHaveBeenCalled();
+  expect(settled).toBe(false);
+  scheduled[0].onended();
+  expect(settled).toBe(false);
+  scheduled[1].onended();
+  expect(settled).toBe(false);
+  scheduled[2].onended();
+  await pending;
+  expect(context.close).toHaveBeenCalled();
 });
 
 test('replaying the same reply reuses synthesis only for the same identity', async () => {

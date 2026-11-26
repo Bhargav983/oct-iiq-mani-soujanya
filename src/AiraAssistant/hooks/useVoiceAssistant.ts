@@ -11,6 +11,9 @@ import { isVoiceSupported } from '../utils/voiceSupport';
 import { isPublicRoute } from '../utils/publicRoutes';
 import { PLAYBACK_INTERRUPTION_EVENT, playTTS, ttsService } from '../services/ttsService';
 import { getAuthContext, type AuthParams } from '../utils/useAuth';
+import { ProcessingAudio } from '../services/processingAudio';
+import { AssistantError, assistantErrorMessage } from '../services/assistantResponse';
+import { requestedLanguage } from '../services/voiceLanguage';
 
 const SAMPLE_RATE = 16000;
 /** True when the site runs inside the native iOS app's WebView. */
@@ -181,6 +184,9 @@ export function useVoiceAssistant(
    * Users barge in via the explicit cancelPlayback() UI control instead.
    */
   const isTTSPlayingRef = useRef(false);
+  const processingAudioRef = useRef<ProcessingAudio | null>(null);
+  processingAudioRef.current ??= new ProcessingAudio();
+  const stopProcessingAudio = useCallback(() => processingAudioRef.current?.stop(), []);
   onResultRef.current = onResult;
   
   const silenceTimerRef = useRef<number | undefined>(undefined);
@@ -474,8 +480,8 @@ export function useVoiceAssistant(
             shouldListenRef.current = false;
             setDone(true);
             updateState('PROCESSING');
-
             const finalText = event.transcript?.trim() || '';
+            processingAudioRef.current?.start(requestedLanguage(finalText, _lang));
             const generation = sessionGenerationRef.current;
             const current = () => generation === sessionGenerationRef.current && !isUnmountedRef.current && Boolean(microphoneRef.current?.isCurrent());
 
@@ -505,7 +511,7 @@ export function useVoiceAssistant(
 
                     await playTTS(
                       replyText,
-                      () => { if (current()) updateState('SPEAKING'); },
+                      () => { stopProcessingAudio(); if (current()) updateState('SPEAKING'); },
                       {
                         userId: authRef.current.userId,
                         companyId: authRef.current.companyId,
@@ -517,6 +523,7 @@ export function useVoiceAssistant(
                     isTTSPlayingRef.current = false;
                   }
                 }
+                stopProcessingAudio();
                 if (!current()) return;
 
                 updateState('IDLE');
@@ -529,14 +536,16 @@ export function useVoiceAssistant(
                   void armWakeWordRef.current();
                 }
               } catch (error) {
+                stopProcessingAudio();
                 if (!current()) return;
                 conversationRequestedRef.current = false;
                 await releaseConversationRef.current();
-                console.error('❌ [STT] Error processing final transcript:', error);
+                console.error('❌ [STT] Error processing final transcript:', {
+                  error,
+                  requestId: error instanceof AssistantError ? error.requestId : undefined,
+                });
                 updateState('ERROR');
-                setErrorMessage(
-                  error instanceof Error ? error.message : 'Error processing transcript',
-                );
+                setErrorMessage(assistantErrorMessage(error));
               }
             })();
           }
@@ -544,14 +553,8 @@ export function useVoiceAssistant(
         onError: (message) => {
           if (isUnmountedRef.current) return;
           console.error('🔴 [VoiceAssistant] VoiceSocket error:', message);
-          if (settled && shouldListenRef.current) {
-            ++sessionGenerationRef.current;
-            shouldListenRef.current = false;
-            conversationRequestedRef.current = false;
-            streamingRef.current = false;
-            socket.disconnect();
-            void releaseConversationRef.current().catch(error => console.warn('Microphone release failed', error));
-            setErrorMessage(message);
+          if (settled) {
+            setErrorMessage('Voice connection paused — Tap to reconnect');
             updateState('ERROR');
           }
           safeReject(new Error(message));
@@ -564,6 +567,8 @@ export function useVoiceAssistant(
           if (socketState === 'CONNECTED') {
             setErrorMessage(null);
             safeResolve();
+          } else if (socketState === 'RECONNECTING' && settled) {
+            setErrorMessage('Reconnecting voice...');
           } else if (socketState === 'ERROR' || socketState === 'DISCONNECTED') {
             safeReject(new Error('Speech WebSocket disconnected'));
           }
@@ -1205,7 +1210,9 @@ export function useVoiceAssistant(
       streamingRef.current = false;
       socketRef.current?.disconnect();
       void releaseConversation().catch(reason => console.warn('Microphone release failed', reason));
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to start microphone.');
+      setErrorMessage(error instanceof Error && ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error.name)
+        ? 'Microphone access is blocked. Enable microphone permission in your browser settings to use voice.'
+        : error instanceof Error ? error.message : 'Unable to start microphone.');
       updateState('ERROR');
     } finally {
       window.clearTimeout(timer);
@@ -1241,6 +1248,7 @@ export function useVoiceAssistant(
     socketRef.current?.disconnect();
     if (transcriptRef.current.trim()) setDone(true);
     updateState('IDLE');
+    stopProcessingAudio();
     ttsService.stopCurrentAudio();
     void releaseConversation().then(() => { if (generation === sessionGenerationRef.current) void armWakeWord(); }).catch(error => setErrorMessage(String(error)));
   }, [armWakeWord, pauseVad, releaseConversation, updateState, vad]);
@@ -1267,6 +1275,7 @@ export function useVoiceAssistant(
     setDone(false);
     setErrorMessage(null);
     updateState('IDLE');
+    stopProcessingAudio();
     ttsService.stopCurrentAudio();
     void releaseConversation().then(() => { if (generation === sessionGenerationRef.current) void armWakeWord(); }).catch(error => setErrorMessage(String(error)));
   }, [armWakeWord, pauseVad, releaseConversation, updateState, updateTranscript, vad]);
@@ -1401,6 +1410,7 @@ export function useVoiceAssistant(
       // close / HMR edit). No deferred-timer machinery is needed.
       console.log('🔴 [VoiceAssistant] COMPONENT UNMOUNTED');
       isUnmountedRef.current = true;
+      stopProcessingAudio();
       // This cancellation counter intentionally uses its latest value at teardown.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       ++sessionGenerationRef.current;

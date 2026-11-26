@@ -1,12 +1,29 @@
-import type { SuggestedAction } from '../types';
+import type { Language, SuggestedAction } from '../types';
+import { t } from '../i18n/strings';
+
+function localizedActionLabel(action: SuggestedAction, lang: Language): string {
+  const s = t(lang);
+  switch (action.id) {
+    case 'my-machines': return s.qaMyMachines;
+    case 'offline': return s.qaOffline;
+    case 'status': return s.qaStatus;
+    case 'error-logs': return s.qaViewErrorLogs;
+    case 'service': return s.qaService;
+    case 'controls': return s.qaControls;
+    case 'voice-input': return s.qaVoice;
+    default: return action.label;
+  }
+}
 
 export function QuickReplyBar({
   actions,
   disabled,
+  lang = 'en',
   onSelect,
 }: {
   actions: SuggestedAction[];
   disabled: boolean;
+  lang?: Language;
   onSelect: (action: SuggestedAction) => void;
 }) {
   if (!actions.length) return null;
@@ -14,19 +31,22 @@ export function QuickReplyBar({
   return (
     <div className="aira-quick-reply-shell">
       <div className="aira-quick-reply-bar" role="toolbar" aria-label="Suggested replies">
-        {actions.map((action) => (
-          <button
-            key={action.id}
-            type="button"
-            disabled={disabled}
-            className="aira-quick-reply-chip"
-            onClick={() => onSelect(action)}
-            aria-label={action.label}
-          >
-            {action.icon && <QuickReplyIcon icon={action.icon} />}
-            <span className="aira-quick-reply-label">{action.label}</span>
-          </button>
-        ))}
+        {actions.map((action) => {
+          const label = localizedActionLabel(action, lang);
+          return (
+            <button
+              key={action.id}
+              type="button"
+              disabled={disabled}
+              className="aira-quick-reply-chip"
+              onClick={() => onSelect(action)}
+              aria-label={label}
+            >
+              {action.icon && <QuickReplyIcon icon={action.icon} />}
+              <span className="aira-quick-reply-label">{label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

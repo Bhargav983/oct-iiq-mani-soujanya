@@ -26,3 +26,16 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# session planning, snapshots, and QA reports
+/AIRA_Chatbot_Bug_Report_Solutions.docx
+/AIRA_Chatbot_Latency_Health_Check.pdf
+/Co-pilot-session.json
+/aira_chatbot_remediation_plan.md
+/n8n-get-customer-machines.json
+/n8n-main-snapshot.json
+
+# Build archives
+build*.zip
+build-*/
+public.zip

@@ -1,14 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import type { VoiceState } from '../types';
+import type { Language, VoiceState } from '../types';
 import { toVisualizerState } from './WaveformVisualizer';
 
-const STATUS_BY_STATE: Record<VoiceState, string> = {
-  IDLE: 'Preparing microphone',
-  LISTENING: 'Listening',
-  PROCESSING: 'Thinking',
-  SYNTHESIZING: 'Preparing response',
-  SPEAKING: 'AIRA is speaking',
-  ERROR: 'Something went wrong',
+const STATUS_BY_LANG: Record<Language, Record<VoiceState, string>> = {
+  en: {
+    IDLE: 'Preparing microphone',
+    LISTENING: 'Listening',
+    PROCESSING: 'Thinking',
+    SYNTHESIZING: 'Preparing response',
+    SPEAKING: 'AIRA is speaking',
+    ERROR: 'Voice connection paused',
+  },
+  ar: {
+    IDLE: 'جارٍ تحضير الميكروفون',
+    LISTENING: 'جارٍ الاستماع',
+    PROCESSING: 'جارٍ التفكير',
+    SYNTHESIZING: 'جارٍ تحضير الرد',
+    SPEAKING: 'AIRA تتحدث',
+    ERROR: 'تم إيقاف اتصال الصوت مؤقتاً',
+  },
+  hi: {
+    IDLE: 'माइक्रोफ़ोन तैयार हो रहा है',
+    LISTENING: 'सुन रही हूँ',
+    PROCESSING: 'सोच रही हूँ',
+    SYNTHESIZING: 'जवाब तैयार हो रहा है',
+    SPEAKING: 'AIRA बोल रही है',
+    ERROR: 'वॉइस कनेक्शन रुका है',
+  },
 };
 
 /**
@@ -24,6 +42,8 @@ export function VoiceModeOverlay({
   voiceState,
   audioLevel,
   transcript,
+  errorMessage,
+  lang = 'en',
   onEndSession,
   onSwitchToKeyboard,
   onStopPlayback,
@@ -31,6 +51,8 @@ export function VoiceModeOverlay({
   voiceState: VoiceState;
   audioLevel: number;
   transcript: string;
+  errorMessage?: string | null;
+  lang?: Language;
   onEndSession: () => void;
   onSwitchToKeyboard: () => void;
   /** Manual barge-in — halts TTS and returns the orb to listening. */
@@ -77,7 +99,8 @@ export function VoiceModeOverlay({
     };
   }, []);
 
-  const baseStatus = STATUS_BY_STATE[voiceState] ?? STATUS_BY_STATE.IDLE;
+  const dict = STATUS_BY_LANG[lang] ?? STATUS_BY_LANG.en;
+  const baseStatus = (voiceState === 'ERROR' && errorMessage) ? errorMessage : (dict[voiceState] ?? dict.IDLE);
   const statusText =
     voiceState === 'ERROR' ? baseStatus : `${baseStatus}${'.'.repeat(dotCount)}`;
   const visualizerState = toVisualizerState(voiceState);

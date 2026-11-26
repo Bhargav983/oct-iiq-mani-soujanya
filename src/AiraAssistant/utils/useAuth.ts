@@ -71,17 +71,19 @@ function readFromContext(user: AuthUserShape | null | undefined): AuthParams {
 function readFromLocalStorage(fallback: AuthParams): AuthParams {
   if (typeof window === 'undefined') return fallback;
 
-  let lsUserId = '';
-  let lsCompanyId = '';
+  let lsUserId = fallback.userId;
+  let lsCompanyId = fallback.companyId;
   try {
-    lsUserId = window.localStorage.getItem('userId') || '';
+    const storedUser = window.localStorage.getItem('user');
+    if (storedUser) {
+      const stored = readFromContext(JSON.parse(storedUser) as AuthUserShape);
+      lsUserId ||= stored.userId;
+      lsCompanyId ||= stored.companyId;
+    }
+    lsUserId ||= window.localStorage.getItem('userId') || '';
+    lsCompanyId ||= window.localStorage.getItem('company_id') || '';
   } catch {
     /* localStorage may be unavailable (private mode, SSR) — ignore. */
-  }
-  try {
-    lsCompanyId = window.localStorage.getItem('company_id') || '';
-  } catch {
-    /* ignore */
   }
 
   // selectedService is the JSON blob the rest of the app uses to stash the

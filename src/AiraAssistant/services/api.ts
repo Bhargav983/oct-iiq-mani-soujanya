@@ -4,6 +4,8 @@ import type { ChatMessage, ChatContext, Machine, ServiceRequest, SuggestedAction
 import { createMessageId } from '../utils/messageId';
 import { setCachedMachines } from './machineService';
 import type { AuthParams } from '../utils/useAuth';
+import { createUuidV4, getChatSessionId } from './chatSession';
+import { AssistantError, type AssistantErrorCode } from './assistantResponse';
 
 // n8n Webhook endpoint for the HVAC chat flow.
 const WEBHOOK_URL = 'https://n8ncustomer.air2o.net/webhook/hvac-chat-test-new-version-2';
@@ -38,6 +40,13 @@ export type N8nCard =
   | { type: 'errorLogs'; logs: ErrorLogsCardData };
 
 export type N8nResponse = {
+  ok?: boolean;
+  error_code?: AssistantErrorCode;
+  user_message?: string;
+  retryable?: boolean;
+  request_id?: string;
+  display_text?: string;
+  speech_text?: string;
   text?: string;
   output?: string;
   reply?: string;
@@ -59,32 +68,37 @@ export async function callAssistant(
 ): Promise<N8nResponse> {
   const started = performance.now();
   const responseLanguage = requestedLanguage(chatInput, language);
+  const userId = authParams?.userId?.trim();
+  const companyId = authParams?.companyId?.trim();
+  if (!userId || !companyId) {
+    throw new AssistantError('AUTH_REQUIRED', 'Please sign in again so AIRA can access your account.', false);
+  }
+  const requestId = createUuidV4();
   const res = await fetch(WEBHOOK_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
     body: JSON.stringify({
       message: chatInput,
       language: responseLanguage,
       response_language: responseLanguage,
       instructions: `Respond in ${{ en: 'English', hi: 'Hindi', ar: 'Arabic' }[responseLanguage]}. Your name is Aira; pronounce it as a name, never spell its letters.`,
-      // Authenticated identity — sourced from React <AuthContext /> at the
-      // call site (see VoiceAssistantProvider) and passed in here. Empty
-      // strings are sent through unchanged so n8n can apply its own
-      // "missing identity" guard without the client dropping the call.
-      customer_id: authParams?.userId ?? '',
-      company_id: authParams?.companyId ?? '',
+      customer_id: userId,
+      company_id: companyId,
+      chat_session_id: getChatSessionId(),
+      request_id: requestId,
     }),
   });
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
-
-  const data = await res.json();
-  console.log('n8n raw response:', data);
+  const data = await res.json().catch(() => ({}));
   console.info('[VoiceTiming] chat-response-ms', Math.round(performance.now() - started));
   const payload = normalizeN8nResponse(data);
-  console.log('n8n normalized payload:', payload);
+  if (!res.ok || payload.ok === false || payload.error_code) {
+    const errorCode = payload.error_code ?? (res.status === 429 ? 'LLM_RATE_LIMIT' : res.status >= 500 ? 'UPSTREAM_API_ERROR' : 'UNKNOWN');
+    const resolvedRequestId = payload.request_id ?? requestId;
+    const retryable = payload.retryable ?? (res.status === 429 || res.status >= 500);
+    console.error('[AIRA] Assistant request failed', { errorCode, requestId: resolvedRequestId, retryable });
+    throw new AssistantError(errorCode, payload.user_message ?? friendlyError(errorCode), retryable, resolvedRequestId);
+  }
   return payload;
 }
 
@@ -99,7 +113,7 @@ export function mapResponse(response: N8nResponse, chatInput?: string): {
   const suggestedActions = normalizeSuggestedActions(response.suggestedActions);
 
   // Handle n8n response format: { reply: "..." } or { output: "..." } or { text: "..." }
-  const responseText = response.reply ?? response.text ?? response.output;
+  const responseText = response.display_text ?? response.reply ?? response.text ?? response.output;
   console.log('responseText:', responseText);
 
   // If we have cards from n8n, use them directly
@@ -117,6 +131,7 @@ export function mapResponse(response: N8nResponse, chatInput?: string): {
       role: 'assistant',
       kind: 'text',
       text: responseText,
+      speechText: response.speech_text,
       suggestedActions,
       timestamp: now,
     });
@@ -255,11 +270,22 @@ function normalizeN8nResponse(data: unknown): N8nResponse {
     ...record,
     ...inner,
     ...nestedData,
-    reply: pickText(record.reply, record.text, record.output, record.message, record.result, record.answer, record.response, inner.reply, inner.text, inner.output, nestedData.reply, nestedData.text, nestedData.output),
+    reply: pickText(record.display_text, record.reply, record.text, record.output, record.message, record.result, record.answer, record.response, inner.display_text, inner.reply, inner.text, inner.output, nestedData.display_text, nestedData.reply, nestedData.text, nestedData.output),
     suggestedActions: pickSuggestedActions(record.suggestedActions, inner.suggestedActions, nestedData.suggestedActions),
     cards: pickCards(record.cards, inner.cards, nestedData.cards),
     contextPatch: pickContextPatch(record.contextPatch, inner.contextPatch, nestedData.contextPatch),
   };
+}
+
+function friendlyError(code: AssistantErrorCode): string {
+  switch (code) {
+    case 'AUTH_REQUIRED': return 'Please sign in again so AIRA can access your account.';
+    case 'TOOL_TIMEOUT': return 'The HVAC system took too long to respond. Please try again.';
+    case 'TOOL_SCHEMA_ERROR': return 'Some required details are missing. Please check them and try again.';
+    case 'LLM_RATE_LIMIT': return 'AIRA is busy right now. Please try again in a moment.';
+    case 'UPSTREAM_API_ERROR': return 'I could not reach the HVAC service. Please try again in a moment.';
+    default: return 'I could not complete that request. Please try again in a moment.';
+  }
 }
 
 function pickText(...values: unknown[]): string | undefined {
