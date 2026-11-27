@@ -152,6 +152,7 @@ export interface STTTranscriptEvent {
   isFinal: boolean;
   transcript: string;
   confidence?: number;
+  turnId?: number;
 }
 
 /**

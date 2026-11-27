@@ -108,12 +108,12 @@ describe('GeminiVoiceSocket streaming transport', () => {
     ws.open();
 
     ws.emitMessage(JSON.stringify({ transcript: 'hello', is_final: false }));
-    expect(events).toEqual([{ transcript: 'hello', isFinal: false }]);
+    expect(events).toEqual([{ transcript: 'hello', isFinal: false, turnId: 0 }]);
 
     ws.emitMessage(JSON.stringify({ transcript: 'hello world', is_final: true }));
     expect(events).toEqual([
-      { transcript: 'hello', isFinal: false },
-      { transcript: 'hello world', isFinal: true },
+      { transcript: 'hello', isFinal: false, turnId: 0 },
+      { transcript: 'hello world', isFinal: true, turnId: 0 },
     ]);
   });
 
@@ -129,9 +129,9 @@ describe('GeminiVoiceSocket streaming transport', () => {
     // Every non-final message dispatches a partial carrying the longest
     // hypothesis seen so far; the shorter text does not regress the interim.
     expect(events).toEqual([
-      { transcript: 'hello world', isFinal: false },
-      { transcript: 'hello world', isFinal: false },
-      { transcript: 'hello world', isFinal: true },
+      { transcript: 'hello world', isFinal: false, turnId: 0 },
+      { transcript: 'hello world', isFinal: false, turnId: 0 },
+      { transcript: 'hello world', isFinal: true, turnId: 0 },
     ]);
   });
 
@@ -154,9 +154,101 @@ describe('GeminiVoiceSocket streaming transport', () => {
     socket.endUtterance();
     ws.emitMessage(JSON.stringify({ transcript: 'second', is_final: false }));
     expect(events).toEqual([
-      { transcript: 'first turn', isFinal: true },
-      { transcript: 'second', isFinal: false },
+      { transcript: 'first turn', isFinal: true, turnId: 0 },
+      { transcript: 'second', isFinal: false, turnId: 0 },
     ]);
+  });
+
+  it('resetTurn sends turn_reset on the persistent socket, drops queued frames, and preserves keepalive', () => {
+    socket.sendAudioChunk(new Float32Array([0.5]));
+    const ws = FakeWebSocket.instances[0];
+    socket.resetTurn(1);
+    ws.open();
+    // Pre-reset pending frames were dropped before socket open.
+    expect(ws.sent).toHaveLength(0);
+
+    ws.emitMessage(JSON.stringify({ transcript: 'half baked', is_final: false }));
+    socket.resetTurn(2);
+    expect(JSON.parse(String(ws.sent.at(-1)))).toEqual({ type: 'turn_reset', turnId: 2 });
+    expect(ws.closed).toBe(false);
+
+    // Heartbeat continues on the same persistent socket.
+    jest.advanceTimersByTime(15000);
+    expect(JSON.parse(String(ws.sent.at(-1)))).toMatchObject({ type: 'ping' });
+
+    ws.emitMessage(JSON.stringify({ transcript: 'fresh turn', is_final: true }));
+    expect(events.at(-1)).toEqual({ transcript: 'fresh turn', isFinal: true, turnId: 2 });
+  });
+
+  it('strips accumulated prior-turn prefixes across 3 consecutive turns on a persistent socket', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+
+    // Turn 1
+    socket.resetTurn(1);
+    ws.emitMessage(JSON.stringify({ transcript: 'Which machine is online?', is_final: true }));
+
+    // Turn 2: unpatched gateway prepends Turn 1 (even with punctuation differences)
+    socket.resetTurn(2);
+    ws.emitMessage(JSON.stringify({ transcript: 'Which machine is online?', is_final: false }));
+    ws.emitMessage(JSON.stringify({ transcript: 'Which machine is online? Is it sunny outside?', is_final: true }));
+
+    // Turn 3: unpatched gateway prepends Turn 1 + Turn 2
+    socket.resetTurn(3);
+    ws.emitMessage(JSON.stringify({
+      transcript: 'Which machine is online? Is it sunny outside? Please let me know maintenance steps for turning on AC.',
+      is_final: true,
+    }));
+
+    expect(events).toEqual([
+      { transcript: 'Which machine is online?', isFinal: true, turnId: 1 },
+      { transcript: 'Is it sunny outside?', isFinal: true, turnId: 2 },
+      { transcript: 'Please let me know maintenance steps for turning on AC.', isFinal: true, turnId: 3 },
+    ]);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('preserves legitimate repeated final utterances and ignores stale turnId or turn_reset_ack frames', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+
+    socket.resetTurn(1);
+    ws.emitMessage(JSON.stringify({ type: 'turn_reset_ack', turnId: 1 }));
+    ws.emitMessage(JSON.stringify({ transcript: 'Check status', is_final: true }));
+
+    socket.resetTurn(2);
+    ws.emitMessage(JSON.stringify({ transcript: 'stale turn one', is_final: true, turnId: 1 }));
+    ws.emitMessage(JSON.stringify({ transcript: 'Check status', is_final: true, turnId: 2 }));
+
+    expect(events).toEqual([
+      { transcript: 'Check status', isFinal: true, turnId: 1 },
+      { transcript: 'Check status', isFinal: true, turnId: 2 },
+    ]);
+  });
+
+  it('strips Turn 1 prefix even after an intervening stray ignored final arrives mid-turn', () => {
+    socket.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+
+    socket.resetTurn(1);
+    ws.emitMessage(JSON.stringify({ transcript: 'Which machine is online?', is_final: true }));
+
+    // Simulate stray echo arriving mid-processing that useVoiceAssistant ignores cleanly
+    socket.resetTurn(2);
+    ws.emitMessage(JSON.stringify({ transcript: 'stale echo during processing', is_final: true }));
+
+    // Turn 2 arrives with Turn 1 prepended on an unpatched gateway
+    socket.resetTurn(3);
+    ws.emitMessage(JSON.stringify({ transcript: 'Which machine is online? Is it sunny outside?', is_final: true }));
+
+    expect(events.at(-1)).toEqual({
+      transcript: 'Is it sunny outside?',
+      isFinal: true,
+      turnId: 3,
+    });
   });
 
   it('schedules a reconnect after an unexpected close and recovers', () => {
@@ -174,7 +266,7 @@ describe('GeminiVoiceSocket streaming transport', () => {
     expect(stateChanges).toContain('CONNECTED');
 
     FakeWebSocket.instances[1].emitMessage(JSON.stringify({ transcript: 'back', is_final: false }));
-    expect(events).toEqual([{ transcript: 'back', isFinal: false }]);
+    expect(events).toEqual([{ transcript: 'back', isFinal: false, turnId: 0 }]);
   });
 
   it('retries three times before exposing a friendly terminal error', () => {

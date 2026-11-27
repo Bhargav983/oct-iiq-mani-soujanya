@@ -68,14 +68,30 @@ export function useBrowserDictation(lang: string, onText: (text: string) => void
         recognition.lang = voiceLocale(lang);
         recognition.continuous = false;
         recognition.interimResults = true;
+        let lastFinalIndex = -1;
+        const originalEnd = session.end;
+        session.end = () => {
+          lastFinalIndex = -1;
+          originalEnd();
+        };
         recognition.onresult = (event: any) => {
           if (session.cancelled || session.ended || !session.lease?.isCurrent() || !mounted.current) return;
-          let final = '', interim = '';
-          for (let i = 0; i < event.results.length; i += 1) {
-            if (event.results[i].isFinal) final += event.results[i][0].transcript;
-            else interim += event.results[i][0].transcript;
+          const resultIndex = typeof event.resultIndex === 'number' && event.resultIndex >= 0 ? event.resultIndex : 0;
+          const startIndex = Math.max(resultIndex, lastFinalIndex + 1);
+          let final = '';
+          let interim = '';
+          const results = event.results ?? [];
+          for (let i = startIndex; i < results.length; i += 1) {
+            const item = results[i];
+            const piece = item?.[0]?.transcript ?? '';
+            if (item?.isFinal) {
+              final += piece;
+              lastFinalIndex = i;
+            } else {
+              interim += piece;
+            }
           }
-          setInterimText(interim.trim());
+          setInterimText(final.trim() ? '' : interim.trim());
           if (final.trim()) callback.current(final.trim());
         };
         recognition.onerror = (event: any) => {

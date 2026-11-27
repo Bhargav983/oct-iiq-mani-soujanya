@@ -26,7 +26,9 @@ The gateway relays those frames into a Gemini Live transcription session (`GEMIN
 
 Contract details:
 
-- Interim hypotheses and finalized turns both arrive as messages on the socket; `is_final` (or `isFinal`) marks the turn boundary. The browser keeps the longest interim hypothesis and shows it live, then locks the final text in.
+- Interim hypotheses and finalized turns both arrive as messages on the socket; `is_final` (or `isFinal`) marks the turn boundary. The browser keeps the longest hypothesis within the active turn, locks the final text in, and immediately resets for the next turn.
+- **Turn isolation (`turn_reset`):** Between turns on a persistent WebSocket, the browser sends `{ "type": "turn_reset", "turnId": <number> }`. The gateway MUST clear per-connection transcript and PCM audio buffers immediately after emitting `is_final: true` AND whenever a `turn_reset` frame arrives, without closing the persistent client WebSocket. It must never re-send or prepend prior turns' audio or text.
+- **HVAC vocabulary bias hint:** Configure the Gemini Live STT session system instruction / prompt hint with domain terminology (`machine, HVAC, chiller, thermostat, AIR2O, online, offline, anomaly`) so `"machine"` is not transcribed as `"mission"`.
 - The selected language rides on the connect URL as a `?language=<lang>` query parameter; identity (user/company) is validated from the application session by the gateway, not from the wire.
 - The Gemini API key stays server-side; nothing Google-specific reaches the browser.
 - Gemini Live sessions are capped at ~10 minutes. The gateway must rotate the session (reconnect and replay any in-flight audio) before the cap, so the browser socket can stay open across rotations.

@@ -38,3 +38,51 @@ test('conversation waits for recognizer end and cancelled results are ignored', 
   expect(browserMicrophone.mode).toBe('conversation');
   lease.release();
 });
+
+test('tracks event.resultIndex across incremental results and resets between sessions', async () => {
+  const text = jest.fn();
+  const { result } = renderHook(() => useInlineDictation('en', text));
+
+  await act(async () => { result.current.start(); });
+  act(() => {
+    recognition.onresult({
+      resultIndex: 0,
+      results: [{ isFinal: true, 0: { transcript: 'first sentence' } }],
+    });
+  });
+  act(() => {
+    recognition.onresult({
+      resultIndex: 1,
+      results: [
+        { isFinal: true, 0: { transcript: 'first sentence' } },
+        { isFinal: false, 0: { transcript: 'second' } },
+      ],
+    });
+  });
+  expect(result.current.interimText).toBe('second');
+  act(() => {
+    recognition.onresult({
+      resultIndex: 1,
+      results: [
+        { isFinal: true, 0: { transcript: 'first sentence' } },
+        { isFinal: true, 0: { transcript: 'second sentence' } },
+      ],
+    });
+    recognition.onend();
+  });
+
+  await act(async () => { result.current.start(); });
+  act(() => {
+    recognition.onresult({
+      resultIndex: 0,
+      results: [{ isFinal: true, 0: { transcript: 'third sentence' } }],
+    });
+    recognition.onend();
+  });
+
+  expect(text.mock.calls.map(([value]) => value)).toEqual([
+    'first sentence',
+    'second sentence',
+    'third sentence',
+  ]);
+});

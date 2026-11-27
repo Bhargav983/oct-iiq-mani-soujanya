@@ -27,7 +27,7 @@ beforeEach(() => {
   useMicVAD({}).loading = false;
   GeminiVoiceSocket.mockImplementation(config => {
     const socket = { config, connect: () => config.onStateChange('CONNECTED'), getState: () => 'CONNECTED', isConnected: () => true,
-      disconnect: jest.fn(), endUtterance: jest.fn(), whenConnected: async () => {} };
+      disconnect: jest.fn(), endUtterance: jest.fn(), resetTurn: jest.fn(), whenConnected: async () => {} };
     mockSockets.push(socket); return socket;
   });
   useMicVAD({}).start.mockResolvedValue(undefined);
@@ -262,5 +262,78 @@ test.each([false, true])('silence exits after four seconds unless speech starts 
   } finally {
     hook.unmount();
     jest.useRealTimers();
+  }
+});
+
+test('isolates 3 consecutive multi-turn utterances and ignores STT during thinking/speaking', async () => {
+  WakeWordService.mockImplementation(() => ({ start: async () => {}, stop: async () => {}, isActive: true }));
+  const onResult = jest.fn(async (text) => `Reply to: ${text}`);
+  let resolveSecondTts;
+  playTTS.mockImplementation(async (_text, onStart) => {
+    onStart?.();
+    if (onResult.mock.calls.length === 2) {
+      await new Promise(resolve => { resolveSecondTts = resolve; });
+    }
+  });
+
+  const hook = renderHook(() =>
+    useVoiceAssistant(onResult, 'en', {
+      currentPathname: '/chat-bot',
+      isSessionActive: () => true,
+    }),
+  );
+
+  try {
+    await act(async () => {});
+    await act(async () => { await hook.result.current.start(); });
+    expect(mockSockets).toHaveLength(1);
+    const socket = mockSockets[0];
+    expect(socket.resetTurn).toHaveBeenCalled();
+
+    // Turn 1
+    await act(async () => {
+      socket.config.onTranscript({ transcript: 'Which machine is online?', isFinal: false });
+    });
+    expect(hook.result.current.transcript).toBe('Which machine is online?');
+    await act(async () => {
+      socket.config.onTranscript({ transcript: 'Which machine is online?', isFinal: true });
+    });
+    expect(hook.result.current.state).toBe('LISTENING');
+    expect(hook.result.current.transcript).toBe('');
+
+    // Turn 2: pause during SPEAKING and inject a stray STT event
+    act(() => {
+      socket.config.onTranscript({ transcript: 'Is it sunny outside?', isFinal: true });
+    });
+    await act(async () => {});
+    await act(async () => {
+      // Stray event while TTS SPEAKING must be ignored
+      socket.config.onTranscript({ transcript: 'echo while speaking', isFinal: false });
+      socket.config.onTranscript({ transcript: 'echo while speaking', isFinal: true });
+    });
+    expect(hook.result.current.transcript).toBe('');
+    await act(async () => { resolveSecondTts(); });
+    expect(hook.result.current.state).toBe('LISTENING');
+
+    // Turn 3
+    await act(async () => {
+      socket.config.onTranscript({ transcript: 'Please let me know maintenance steps for turning on AC.', isFinal: true });
+    });
+    expect(hook.result.current.state).toBe('LISTENING');
+    expect(hook.result.current.transcript).toBe('');
+
+    expect(onResult.mock.calls.map(([msg]) => msg)).toEqual([
+      'Which machine is online?',
+      'Is it sunny outside?',
+      'Please let me know maintenance steps for turning on AC.',
+    ]);
+    // Reset called with strictly increasing turnIds across turns
+    const sentTurnIds = socket.resetTurn.mock.calls.map(([id]) => id);
+    expect(sentTurnIds.length).toBeGreaterThanOrEqual(5);
+    for (let i = 1; i < sentTurnIds.length; i += 1) {
+      expect(sentTurnIds[i]).toBeGreaterThan(sentTurnIds[i - 1]);
+    }
+  } finally {
+    hook.unmount();
   }
 });
