@@ -21,8 +21,8 @@ import { PLAYBACK_INTERRUPTION_EVENT, ttsService } from '../services/ttsService'
 import { stopMessagePlayback } from '../services/messagePlayback';
 import { resetChatSessionId } from '../services/chatSession';
 
-function welcomeMessage(lang: Language): ChatMessage {
-  return { id: createMessageId('m'), role: 'assistant', kind: 'text', text: t(lang).welcome, timestamp: Date.now() };
+function welcomeMessage(): ChatMessage {
+  return { id: createMessageId('m'), role: 'assistant', kind: 'text', data: { welcome: true }, timestamp: Date.now() };
 }
 function quickActionsMessage(lang: Language): ChatMessage {
   return {
@@ -70,7 +70,7 @@ function stopAllVoiceAudio() {
 
 export function AssistantPage() {
   const [lang, setLang] = useState<Language>('en');
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage('en'), quickActionsMessage('en')]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage(), quickActionsMessage('en')]);
   const [busy, setBusy] = useState(false);
   const [ctx, setCtx] = useState<ChatContext>(() => makeInitialContext());
   const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
@@ -138,10 +138,7 @@ export function AssistantPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
-    document.documentElement.lang = lang;
-  }, [lang]);
+  const direction = lang === 'ar' ? 'rtl' : 'ltr';
 
   // Register this page's transcript handler and snapshot mirror with the
   // global voice pipeline while mounted. The provider falls back to calling
@@ -335,14 +332,14 @@ export function AssistantPage() {
   function newChat() {
     stopMessagePlayback();
     resetChatSessionId();
-    setMessages([welcomeMessage(lang), quickActionsMessage(lang)]);
+    setMessages([welcomeMessage(), quickActionsMessage(lang)]);
     setCtx({ ...makeInitialContext(), lang });
     setHiddenSuggestionsForMessageId(null);
     setShowNewChatConfirm(false);
   }
 
   return (
-    <div className="aira-chat-container">
+    <div className="aira-chat-container" dir={direction} lang={lang}>
       {/* 🧪 TEMPORARY TEST COMPONENT */}
       {/* <VADTest /> */}
       <AssistantHeader lang={lang} onLangChange={setLang} onNewChat={() => setShowNewChatConfirm(true)} />
@@ -422,7 +419,9 @@ export function AssistantPage() {
         <div className="mx-auto d-flex flex-column gap-3" style={{ maxWidth: '42rem' }}>
           {messages.filter((message): message is ChatMessage => Boolean(message)).map((m) => (
             <div key={m.id} className="aira-fade-in">
-              <ChatMessageView message={m} lang={lang} onAction={handleAction} />
+              <ChatMessageView message={m.data?.welcome && m.role === 'assistant' && m.kind === 'text'
+                ? { ...m, text: t(lang).welcome }
+                : m} lang={lang} onAction={handleAction} />
             </div>
           ))}
         </div>
@@ -474,7 +473,7 @@ export function AssistantPage() {
         />
       )}
 
-      <Modal show={showVoiceUnsupported} onHide={() => setShowVoiceUnsupported(false)} centered className="aira-glass">
+      <Modal show={showVoiceUnsupported} onHide={() => setShowVoiceUnsupported(false)} centered className="aira-glass" dir={direction} lang={lang}>
         <Modal.Body className="text-center p-4">
           <p className="text-muted">{t(lang).voiceUnsupported}</p>
           <Button variant="primary" className="aira-action-btn w-100 mt-3" onClick={() => setShowVoiceUnsupported(false)}>
@@ -483,7 +482,7 @@ export function AssistantPage() {
         </Modal.Body>
       </Modal>
 
-      <Modal show={showNewChatConfirm} onHide={() => setShowNewChatConfirm(false)} centered className="aira-glass">
+      <Modal show={showNewChatConfirm} onHide={() => setShowNewChatConfirm(false)} centered className="aira-glass" dir={direction} lang={lang}>
         <Modal.Body className="text-center p-4">
           <p className="fw-semibold">{t(lang).newChatConfirm}</p>
           <div className="mt-3 d-flex gap-2">

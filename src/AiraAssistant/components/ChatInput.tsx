@@ -293,6 +293,8 @@ export function ChatInput({
       {editingMachine && (
         <EditServiceItemModal
           show
+          dir={isRtl ? 'rtl' : 'ltr'}
+          lang={lang}
           serviceItem={editingMachine}
           userId={userId}
           companyId={companyId}

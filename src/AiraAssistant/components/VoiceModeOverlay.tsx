@@ -120,7 +120,7 @@ export function VoiceModeOverlay({
           onClick={onEndSession}
           aria-label="Back"
         >
-          <i className="bi bi-arrow-left" />
+          <i className="bi bi-arrow-left aira-flip-x" />
         </button>
         <span className="aira-orb-title">AIR₂O</span>
         <span style={{ width: 40 }} aria-hidden="true" />

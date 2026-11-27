@@ -295,7 +295,7 @@
   border-radius: 1rem;
   border: 1px solid #e2e8f0;
   background: #fff;
-  text-align: left;
+  text-align: start;
   transition: all 0.15s ease;
 }
 .aira-input-box-wrapper {
@@ -345,7 +345,7 @@
   padding: 0.75rem;
   border: none;
   background: transparent;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   min-height: 44px;
   transition: all 0.15s ease;
@@ -1004,7 +1004,8 @@
   transform: scale(0.95);
 }
 
-[dir='rtl'] .aira-flip-x {
+.aira-chat-container[dir='rtl'] .aira-flip-x {
+  display: inline-block;
   transform: scaleX(-1);
 }
 
@@ -1179,7 +1180,7 @@
 .aira-error-timestamp {
   font-size: 0.6875rem;
   color: #94a3b8;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .aira-error-desc {
