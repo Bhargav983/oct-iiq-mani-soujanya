@@ -3,7 +3,7 @@ import { Modal, Button, Form } from 'react-bootstrap';
 import axios from 'axios';
 import baseURL from '../../ApiUrl/Apiurl';
 
-const EditServiceItemModal = ({ show, handleClose, serviceItem, userId, companyId, onUpdate }) => {
+const EditServiceItemModal = ({ show, handleClose, serviceItem, userId, companyId, onUpdate, dir = undefined, lang = undefined }) => {
   const [serviceItemName, setServiceItemName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -61,7 +61,7 @@ const EditServiceItemModal = ({ show, handleClose, serviceItem, userId, companyI
   };
 
   return (
-    <Modal show={show} onHide={handleClose}>
+    <Modal show={show} onHide={handleClose} dir={dir} lang={lang}>
       <Modal.Header closeButton>
         <Modal.Title>Edit Service Item Name</Modal.Title>
       </Modal.Header>

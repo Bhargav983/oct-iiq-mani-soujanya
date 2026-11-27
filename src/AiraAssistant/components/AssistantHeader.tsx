@@ -59,7 +59,7 @@ export function AssistantHeader({
           onClick={handleBack}
           aria-label="Back to dashboard"
         >
-          <i className="bi bi-arrow-left" style={{ fontSize: '1.1rem' }} />
+          <i className="bi bi-arrow-left aira-flip-x" style={{ fontSize: '1.1rem' }} />
         </Button>
         <div
         className="d-flex align-items-center justify-content-center rounded-3 p-1"
